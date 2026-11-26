@@ -23,6 +23,9 @@ builds the virtualenv itself on first run, so the two lines above become optiona
 ln -sf "$(pwd)/bin/synth-rack" ~/.local/bin/synth-rack
 ```
 
+The window opens and the terminal prompt comes straight back; anything the app prints goes to
+`~/.synth-rack/last-run.log`. `synth-rack --fg` keeps it attached to the terminal instead.
+
 Press **Space**. The factory rack *First Light* plays a groove on both drum machines. Click
 anywhere on Wander (its name gets an underline: that module now has the keyboard) and play over
 it on `A W S E D F T G Y H U J K`; `Z` / `X` change octave. The same keys play whichever

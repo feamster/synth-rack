@@ -18,4 +18,25 @@ if [ ! -x "$py" ]; then
         python3 -m venv "$root/.venv" && "$py" -m pip install -q -r "$root/requirements.txt"
     fi
 fi
-exec "$py" "$root/src/main.py" "$@"
+# The window opens and the prompt comes straight back. `--fg` keeps it attached to the
+# terminal instead (so do --help and --screenshot, which print and exit).
+fg=0; args=()
+for a in "$@"; do
+    case "$a" in
+        --fg) fg=1 ;;
+        -h|--help|--screenshot|--screenshot=*) fg=1; args+=("$a") ;;
+        *) args+=("$a") ;;
+    esac
+done
+[ "$fg" = 1 ] && exec "$py" "$root/src/main.py" "${args[@]}"
+
+log="$HOME/.synth-rack/last-run.log"
+mkdir -p "$(dirname "$log")"
+nohup "$py" "$root/src/main.py" "${args[@]}" >"$log" 2>&1 </dev/null &
+pid=$!
+sleep 1
+if ! kill -0 "$pid" 2>/dev/null; then          # died straight away: show why
+    cat "$log" >&2
+    exit 1
+fi
+echo "synth-rack is running (output in ${log/#$HOME/~}; \`synth-rack --fg\` keeps it in the terminal)"
