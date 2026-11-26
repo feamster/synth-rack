@@ -131,6 +131,11 @@ The ● button in the transport bar records MAIN OUT to `recordings/take-YYYYMMD
 - **In parallel:** run both apps on the same output device.
 - **Guitar/pedalboard into the rack:** add *Line In* and patch it (opens the input device).
 
+The exact interface Pedal Loop relies on is written down on the pedalboard side, in
+`../pedalboard-effects/SPEC.md` section 4. New pedals added there show up here with no changes.
+When that interface changes, update `dsp/utility.py` (`PedalLoop`, `available_boards`) and
+`ui/theme.PEDAL_FINISHES` here; `test_pedal_loop_runs_a_saved_pedalboard` catches a break.
+
 ## 5. Architecture
 
 Python 3.12, PyQt6, numpy, Spotify `pedalboard` (filters, reverb, file I/O), sounddevice. No scipy.
