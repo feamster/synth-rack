@@ -121,11 +121,15 @@ keyboard; the screen is a live scope.
 Four stereo tracks over a loop of 1/2/4/8 bars. REC records the **in** jack onto the selected
 track while the transport runs (overdubs add). Speed: 1×, ½×, 2×, reverse. The tape remembers the
 tempo it was recorded at and follows the transport like tape: change tempo and pitch moves with
-it. BOUNCE writes the loop to `recordings/`. Tape audio is saved with the session and with racks.
+it. BOUNCE writes the loop to the recordings folder. Tape audio is saved with the session and with racks.
 
 ### Recording
 
-The ● button in the transport bar records MAIN OUT to `recordings/take-YYYYMMDD-HHMMSS.wav`.
+The ● button in the transport bar records MAIN OUT to `take-YYYYMMDD-HHMMSS.wav` in the
+recordings folder; Reel's BOUNCE writes `reel-….wav` there too. Recordings are the one kind of
+user data that does not live in the repository: the default folder is `~/Dropbox/Synth Rack`
+(`~/Music/Synth Rack` without Dropbox), and it can be changed from the ● button's right-click
+menu or the Audio… dialog. The choice is stored per machine in the session file.
 
 ## 4. Working with the pedalboard
 
@@ -203,6 +207,9 @@ Unknown module types, jacks and params are skipped on load; values are clamped.
 `SYNTHRACK_HOME` to a temp dir so the real session is untouched.
 
 ## 8. Backlog (not built)
+
+- Tutorials: `tutorials/` has a first three; grow it as features land (tape, patching, Pedal
+  Loop, sound design on Forge) and keep them in step with the UI.
 
 - MIDI: notes in from a controller, clock/transport out to the real Digitakt, pattern dump to it
   via the existing digitakt-midi tools.

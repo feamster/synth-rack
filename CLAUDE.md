@@ -15,7 +15,8 @@ src/synthrack/engine.py  audio stream, patch graph, master recorder
 src/synthrack/racks.py   factory racks, user racks, session
 src/synthrack/ui/        theme, widgets, module faceplates, rack view, main window
 tests/                   pytest (pythonpath = src)
-racks/ samples/ recordings/   user data, created on demand
+racks/ samples/          user data kept with the repo (recordings go to Dropbox / a chosen folder)
+tutorials/               walk-throughs; update them when the UI they describe changes
 ```
 
 ## Commands

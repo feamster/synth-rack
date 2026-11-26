@@ -14,7 +14,7 @@ from ..dsp.groovebox import LENGTHS, PATTERN_NAMES, TRIG_PARAMS, note_name
 from ..dsp.library import LIBRARY, write_wav
 from ..dsp.reel import BARS, TRACKS
 from ..dsp.wander import ENGINE_LABELS, ENGINES
-from ..racks import recordings_dir
+from ..racks import recordings_dir, tidy_path
 from .module_widget import HEADER_H, PIANO_KEYS, ModuleWidget
 from .theme import (
     FINISHES,
@@ -934,8 +934,8 @@ class ReelWidget(ModuleWidget):
                   lambda: reel.mute[reel.selected], UI_ACCENT, width=62)
         self._pad("erase", "Erase", 150, 312, self._erase, "Erase the selected track (Shift: the whole tape)",
                   width=62)
-        self._pad("bounce", "Bounce", 217, 312, self._bounce, "Write the loop to recordings/ as a WAV",
-                  width=62)
+        self._pad("bounce", "Bounce", 217, 312, self._bounce,
+                  "Write the loop to the recordings folder as a WAV", width=62)
         self._jack("in", "in", self.strip_x, 90)
         self._jack("out", "out", self.strip_x, 200)
 
@@ -991,6 +991,7 @@ class ReelWidget(ModuleWidget):
         try:
             write_wav(path, result[0], result[1])
             self.display.say(f"→ {path.name}")
+            self.window().say(f"Saved {path.name} in {tidy_path(path.parent)}")
         except Exception as exc:
             self.display.say(type(exc).__name__)
 

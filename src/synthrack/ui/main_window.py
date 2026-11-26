@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
-from PyQt6.QtCore import QEvent, Qt, QTimer
-from PyQt6.QtGui import QKeySequence, QShortcut
+from PyQt6.QtCore import QEvent, Qt, QTimer, QUrl
+from PyQt6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QInputDialog,
@@ -27,11 +29,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .. import __version__
+from .. import __version__, racks
 from ..dsp.library import write_wav
 from ..dsp.transport import BPM_MAX, BPM_MIN, SWING_MAX
 from ..engine import BLOCK_SIZES, SAMPLE_RATES, AudioConfig, AudioEngine, list_devices
-from ..racks import RackStore, build_rack, rack_tempo, rack_to_dict, recordings_dir
+from ..racks import RackStore, build_rack, rack_tempo, rack_to_dict, recordings_dir, tidy_path
 from .module_widget import ModuleWidget
 from .rack_view import ModuleBrowser, RackView
 from .theme import RACK_SKINS, ROW_H, UI_ACCENT, UI_BG, UI_DIM, UI_PANEL, UI_TEXT
@@ -78,7 +80,8 @@ def _caption(text: str) -> QLabel:
 class SettingsDialog(QDialog):
     def __init__(self, config: AudioConfig, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Audio Settings")
+        self.setWindowTitle("Audio and Recording Settings")
+        self.recordings = recordings_dir()
         self.setMinimumWidth(440)
         ins, outs = list_devices()
         form = QFormLayout(self)
@@ -113,6 +116,14 @@ class SettingsDialog(QDialog):
         form.addRow("Line In listens to input", self.channel)
         form.addRow("Sample rate", self.rate)
         form.addRow("Buffer size", self.block)
+        folder = QHBoxLayout()
+        self.folder_label = QLabel(tidy_path(self.recordings))
+        self.folder_label.setToolTip("Where ● takes and Reel bounces are saved")
+        choose = QPushButton("Choose…")
+        choose.clicked.connect(self._choose_folder)
+        folder.addWidget(self.folder_label, 1)
+        folder.addWidget(choose)
+        form.addRow("Recordings folder", folder)
         note = QLabel("The input device is only opened while a Line In module is patched. "
                       "To feed the pedalboard app, send the output to BlackHole and pick "
                       "BlackHole as its Live Input.")
@@ -125,10 +136,22 @@ class SettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
 
+    def _choose_folder(self) -> None:
+        path = choose_recordings_folder(self, self.recordings)
+        if path:
+            self.recordings = path
+            self.folder_label.setText(tidy_path(path))
+
     def result_config(self) -> AudioConfig:
         return AudioConfig(self.input.currentData(), self.output.currentData(),
                            self.channel.value(), self.rate.currentData(),
                            self.block.currentData())
+
+
+def choose_recordings_folder(parent, current: Path) -> Path | None:
+    start = current if current.is_dir() else current.parent if current.parent.is_dir() else Path.home()
+    path = QFileDialog.getExistingDirectory(parent, "Save recordings in", str(start))
+    return Path(path) if path else None
 
 
 def default_config() -> AudioConfig:
@@ -213,8 +236,9 @@ class MainWindow(QMainWindow):
         self.play.toggled.connect(self._play)
         row.addWidget(self.play)
         self.rec = TransportButton("rec")
-        self.rec.setToolTip("Record the main output to recordings/")
         self.rec.toggled.connect(self._record)
+        self.rec.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.rec.customContextMenuRequested.connect(self._recordings_menu)
         row.addWidget(self.rec)
         self.clock = QLabel("104.0  1.1")
         self.clock.setObjectName("clock")
@@ -414,10 +438,31 @@ class MainWindow(QMainWindow):
                 path = recordings_dir() / f"take-{time.strftime('%Y%m%d-%H%M%S')}.wav"
                 try:
                     write_wav(path, audio, self.engine.sr)
-                    self.say(f"Saved recordings/{path.name}")
+                    self.say(f"Saved {path.name} in {tidy_path(path.parent)}")
                 except Exception as exc:
                     QMessageBox.warning(self, "Recording", f"Couldn't save the take:\n\n{exc}")
         self.rec.set_on(self.engine.recording)
+
+    # -- where recordings go ----------------------------------------------
+    def set_recordings_folder(self, path) -> None:
+        racks.set_recordings_dir(path)
+        self.rec.setToolTip(f"Record the main output to {tidy_path(recordings_dir())}\n"
+                            "Right-click to choose or open the folder")
+
+    def _recordings_menu(self, pos) -> None:
+        menu = QMenu(self)
+        where = menu.addAction(f"Recordings go to {tidy_path(recordings_dir())}")
+        where.setEnabled(False)
+        choose = menu.addAction("Choose Recordings Folder…")
+        show = menu.addAction("Show Recordings Folder")
+        chosen = menu.exec(self.rec.mapToGlobal(pos))
+        if chosen is choose:
+            path = choose_recordings_folder(self, recordings_dir())
+            if path:
+                self.set_recordings_folder(path)
+        elif chosen is show:
+            recordings_dir().mkdir(parents=True, exist_ok=True)
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(recordings_dir())))
 
     def say(self, text: str) -> None:
         """Show a message in the status line for a few seconds."""
@@ -525,6 +570,8 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self.engine.config, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.engine.config = dialog.result_config()
+            if dialog.recordings != recordings_dir():
+                self.set_recordings_folder(dialog.recordings)
             if self.engine.running:
                 self._power(True)
 
@@ -560,6 +607,7 @@ class MainWindow(QMainWindow):
     # -- session ------------------------------------------------------
     def _restore_session(self) -> None:
         session = self.store.load_session()
+        self.set_recordings_folder(session.get("recordings_dir"))
         self.engine.config = AudioConfig.from_dict(session["audio"]) if "audio" in session \
             else default_config()
         if self.engine.config.sample_rate:
@@ -582,6 +630,7 @@ class MainWindow(QMainWindow):
             "version": __version__,
             "audio": self.engine.config.to_dict(),
             "master_db": self.engine.master_db,
+            "recordings_dir": str(racks._recordings) if racks._recordings else None,
             "name": self.rack_name,
             "edited": bool(self.edited_label.text()),
             "rack": self._current_rack(self.rack_name),

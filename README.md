@@ -7,6 +7,7 @@ play from the computer keyboard, and run next to (or through) the
 ![The rack](docs/screenshot.png)
 
 `SPEC.md` is the working spec: what is built, how it fits together, and the backlog.
+[`tutorials/`](tutorials/) has short walk-throughs.
 
 ## Run it
 
@@ -62,8 +63,11 @@ right-click a jack. Press `C` to dim or hide the cables when they are in the way
 ### Saving and recording
 
 - **Save** stores the rack (modules, knobs, patterns, cables, tape) in `racks/`.
-- **●** in the top bar records the main output to `recordings/take-….wav`.
-- Reel's BOUNCE writes the tape loop to `recordings/`.
+- **●** in the top bar records the main output to a `take-….wav`; Reel's BOUNCE writes the tape
+  loop the same way. Recordings do not go in this folder: by default they go to
+  `~/Dropbox/Synth Rack` (or `~/Music/Synth Rack` on a machine without Dropbox). To change that,
+  right-click ● → *Choose Recordings Folder…*, or use **Audio…**. The choice is remembered per
+  machine.
 - Imported samples are copied to `samples/` in this folder, and every Knockbox and Wander sees
   them. You can also drop audio files there yourself. To **rename or delete** one, right-click
   the Knockbox or Wander that is using it: *Rename Sample…*, *Delete Sample…* (moves the file to

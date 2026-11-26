@@ -29,10 +29,35 @@ def racks_dir() -> Path:
     return REPO_ROOT / "racks"
 
 
-def recordings_dir() -> Path:
+_recordings: Path | None = None      # the folder chosen in the app, if any
+
+
+def default_recordings_dir() -> Path:
+    """Where takes and bounces go until a folder is chosen: Dropbox if this
+    machine has one (so the music is backed up and on every Mac), else ~/Music.
+    Recordings are the one thing that does not belong in the repository."""
     if "SYNTHRACK_HOME" in os.environ:
         return Path(os.environ["SYNTHRACK_HOME"]) / "recordings"
-    return REPO_ROOT / "recordings"
+    dropbox = Path.home() / "Dropbox"
+    return (dropbox if dropbox.is_dir() else Path.home() / "Music") / "Synth Rack"
+
+
+def recordings_dir() -> Path:
+    return _recordings or default_recordings_dir()
+
+
+def set_recordings_dir(path: str | Path | None) -> None:
+    """Choose the recordings folder; None goes back to the default."""
+    global _recordings
+    _recordings = Path(path).expanduser() if path else None
+
+
+def tidy_path(path: Path) -> str:
+    """A path for display, with the home folder as ~."""
+    try:
+        return "~/" + str(Path(path).relative_to(Path.home()))
+    except ValueError:
+        return str(path)
 
 
 # -- factory racks ------------------------------------------------------------

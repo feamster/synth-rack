@@ -293,3 +293,32 @@ def test_renaming_and_deleting_a_sample_follows_through_the_rack_and_saved_racks
     window.rack.forget_sample("Door Slam")
     assert knock.module.tracks[2].sound == "Hat Closed" and synth.module.sample_name == "Keys"
     assert "Door Slam" not in knock.f_sound.choices
+
+
+def test_recordings_go_to_the_chosen_folder_and_the_choice_is_remembered(app, tmp_path, monkeypatch):
+    from synthrack import racks
+
+    monkeypatch.delenv("SYNTHRACK_HOME", raising=False)
+    monkeypatch.setattr(racks.Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    assert racks.default_recordings_dir() == tmp_path / "home" / "Music" / "Synth Rack"
+    (tmp_path / "home" / "Dropbox").mkdir(parents=True)
+    assert racks.default_recordings_dir() == tmp_path / "home" / "Dropbox" / "Synth Rack"
+
+    win = MainWindow(RackStore(tmp_path / "state"))
+    win.engine.start = lambda *a, **k: setattr(win.engine, "_stream", FakeStream())
+    assert racks.recordings_dir() == racks.default_recordings_dir()
+    target = tmp_path / "Songs"
+    win.set_recordings_folder(target)
+    win._play(True)
+    win._record(True)
+    run(win, 0.6)
+    win._record(False)
+    takes = list(target.glob("take-*.wav"))
+    assert len(takes) == 1 and takes[0].stat().st_size > 50000
+    assert not (tmp_path / "home" / "Dropbox" / "Synth Rack").exists(), "nothing lands in the default"
+    win.close()
+
+    again = MainWindow(RackStore(tmp_path / "state"))
+    assert racks.recordings_dir() == target and "Songs" in again.rec.toolTip()
+    again.set_recordings_folder(None)
+    again.close()
