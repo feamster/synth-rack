@@ -2,7 +2,7 @@
 
 A portable synth and drum-machine studio for the laptop: a rack of modules you patch with cables,
 play from the computer keyboard, and run next to (or through) the
-[pedalboard](../pedalboard-effects). No instruments or hardware needed.
+[pedalboard](../pedalboard). No instruments or hardware needed.
 
 ![The rack](docs/screenshot.png)
 
@@ -13,6 +13,13 @@ play from the computer keyboard, and run next to (or through) the
 ```
 uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt
 .venv/bin/python src/main.py            # --play starts the music straight away
+```
+
+To start it from anywhere by typing `synth-rack`, link the launcher onto your PATH once (it
+builds the virtualenv itself on first run, so the two lines above become optional):
+
+```
+ln -sf "$(pwd)/bin/synth-rack" ~/.local/bin/synth-rack
 ```
 
 Press **Space**. The factory rack *First Light* plays a groove on both drum machines; select
@@ -60,10 +67,14 @@ right-click a jack. Press `C` to dim or hide the cables when they are in the way
 ## With the pedalboard
 
 - **Inside the rack:** add *Pedal Loop*, choose a board, patch through it. It reads
-  `../pedalboard-effects/boards` and never writes there.
+  `../pedalboard/boards` and never writes there.
 - **Into the pedalboard app:** Audio… → output to *BlackHole 2ch*, then choose BlackHole as the
   pedalboard's Live Input.
 - **Guitar into the rack:** add *Line In* and patch it. Audio… sets the input device and channel.
+
+## License
+
+Apache 2.0, see `LICENSE`.
 
 ## Develop
 

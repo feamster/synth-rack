@@ -1,0 +1,21 @@
+#!/bin/bash
+# Launch the app from anywhere. Link this file onto your PATH:
+#   ln -sf "$(pwd)/bin/synth-rack" ~/.local/bin/synth-rack
+# It runs from the repository it lives in and builds the virtualenv on first use.
+set -e
+src="${BASH_SOURCE[0]}"
+while [ -L "$src" ]; do                       # follow the PATH symlink back to the repo
+    target="$(readlink "$src")"
+    case "$target" in /*) src="$target" ;; *) src="$(dirname "$src")/$target" ;; esac
+done
+root="$(cd "$(dirname "$src")/.." && pwd)"
+py="$root/.venv/bin/python"
+if [ ! -x "$py" ]; then
+    echo "First run: setting up $root/.venv ..." >&2
+    if command -v uv >/dev/null; then
+        uv venv --python 3.12 "$root/.venv" -q && uv pip install -q --python "$py" -r "$root/requirements.txt"
+    else
+        python3 -m venv "$root/.venv" && "$py" -m pip install -q -r "$root/requirements.txt"
+    fi
+fi
+exec "$py" "$root/src/main.py" "$@"

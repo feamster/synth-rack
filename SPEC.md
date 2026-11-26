@@ -2,7 +2,7 @@
 
 A portable synth / drum-machine studio for the laptop: a painted rack of modules you patch
 together with cables, play from the computer keyboard, and run alongside (or into) the
-sibling `pedalboard-effects` app. This is the living spec: section 1–7 describe what is built
+sibling `pedalboard` app. This is the living spec: section 1–7 describe what is built
 (v0.1), section 8 is the backlog. Update it when behaviour changes.
 
 ## 1. Goals
@@ -78,7 +78,7 @@ The selected module gets the rest of the keys:
 | **Reel** | 4-track tape loop synced to the transport | in, out |
 | **Afterglow** | tempo-synced echo into reverb | in, out |
 | **Summit** | 4-channel mixer with pan and mutes | in 1–4, out |
-| **Pedal Loop** | runs a saved board from `../pedalboard-effects` inside the rack | in, out |
+| **Pedal Loop** | runs a saved board from `../pedalboard` inside the rack | in, out |
 | **Line In** | the audio interface input (guitar, mic, the real Digitakt) | out |
 | **Main Out** | to the audio device; scope and meters | in |
 
@@ -124,7 +124,7 @@ The ● button in the transport bar records MAIN OUT to `recordings/take-YYYYMMD
 ## 4. Working with the pedalboard
 
 - **Inside the rack:** add *Pedal Loop*, pick one of your boards, patch through it. Read-only:
-  it loads the factory boards and `../pedalboard-effects/boards/*.json`, never writes there.
+  it loads the factory boards and `../pedalboard/boards/*.json`, never writes there.
   (`SYNTHRACK_PEDALBOARD` overrides the path. Tuner and looper pedals are skipped.)
 - **Into the pedalboard app:** set this app's output to BlackHole and the pedalboard's Live Input
   to BlackHole.
@@ -132,7 +132,7 @@ The ● button in the transport bar records MAIN OUT to `recordings/take-YYYYMMD
 - **Guitar/pedalboard into the rack:** add *Line In* and patch it (opens the input device).
 
 The exact interface Pedal Loop relies on is written down on the pedalboard side, in
-`../pedalboard-effects/SPEC.md` section 4. New pedals added there show up here with no changes.
+`../pedalboard/SPEC.md` section 4. New pedals added there show up here with no changes.
 When that interface changes, update `dsp/utility.py` (`PedalLoop`, `available_boards`) and
 `ui/theme.PEDAL_FINISHES` here; `test_pedal_loop_runs_a_saved_pedalboard` catches a break.
 
@@ -187,6 +187,8 @@ src/synthrack/ui/           theme, widgets, module widgets, rack view, main wind
 ```
 
 Unknown module types, jacks and params are skipped on load; values are clamped.
+
+`synth-rack` on the PATH starts it from anywhere (`bin/synth-rack`, linked into `~/.local/bin`).
 
 ## 7. Testing
 

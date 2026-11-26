@@ -1,7 +1,7 @@
 # synth-rack Development Guidelines
 
 A patchable rack of drum machines, synths and tape: PyQt6 UI (custom painted) over a numpy +
-Spotify-pedalboard DSP graph. Sibling of `../pedalboard-effects`, whose conventions it follows.
+Spotify-pedalboard DSP graph. Sibling of `../pedalboard`, whose conventions it follows.
 **`SPEC.md` is the living spec: read it first and update it when behaviour changes.**
 
 ## Technologies

@@ -101,10 +101,14 @@ class Summit(Module):
 
 # -- the pedalboard, hosted ---------------------------------------------------
 def pedalboard_root() -> Path:
-    """Where the sibling pedalboard-effects checkout is expected."""
+    """Where the sibling pedalboard checkout is expected."""
     if "SYNTHRACK_PEDALBOARD" in os.environ:
         return Path(os.environ["SYNTHRACK_PEDALBOARD"])
-    return Path(__file__).resolve().parents[4] / "pedalboard-effects"
+    beside = Path(__file__).resolve().parents[4]
+    for name in ("pedalboard", "pedalboard-effects"):     # the repo's name, then its old one
+        if (beside / name / "src" / "pedalfx").is_dir():
+            return beside / name
+    return beside / "pedalboard"
 
 
 def _pedalfx():
@@ -171,7 +175,7 @@ class PedalLoop(Module):
         fx = _pedalfx()
         data = available_boards().get(name)
         if fx is None or data is None:
-            self.error = "pedalboard-effects not found" if fx is None else f"no board '{name}'"
+            self.error = "pedalboard repo not found" if fx is None else f"no board '{name}'"
             self.board = name
             self.chain = ()
             return False

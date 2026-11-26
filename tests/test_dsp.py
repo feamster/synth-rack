@@ -321,7 +321,7 @@ def test_feedback_loops_are_detected_and_plans_run_in_dependency_order():
 
 def test_pedal_loop_runs_a_saved_pedalboard():
     if not available_boards():
-        pytest.skip("pedalboard-effects is not checked out next to this repo")
+        pytest.skip("pedalboard is not checked out next to this repo")
     box, loop = empty(Forge(SR)), PedalLoop(SR)
     box.set_step(6, 0, box.new_step(6))
     box.uid, loop.uid = "forge-1", "pedalloop-1"
@@ -362,7 +362,7 @@ def test_importing_a_file_copies_it_into_the_library(tmp_path):
 @pytest.mark.parametrize("rack", FACTORY_RACKS, ids=lambda r: r["name"])
 def test_factory_racks_load_and_play_cleanly(rack):
     if rack["name"] == "Through the Pedalboard" and not available_boards():
-        pytest.skip("pedalboard-effects is not checked out next to this repo")
+        pytest.skip("pedalboard is not checked out next to this repo")
     modules, cables = build_rack(rack, SR)
     assert len(cables) == len(rack["cables"])
     engine = make_engine(modules, cables, bpm=rack_tempo(rack)[0])
