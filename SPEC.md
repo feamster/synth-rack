@@ -50,6 +50,22 @@ which new modules must follow (they live in `ui/theme.py` and `ui/widgets.py`):
   patch brings them back.
 - Cases: graphite (default), walnut, aluminum.
 
+### Where things live
+
+| What | Where | Why |
+|---|---|---|
+| Code, factory racks, factory sounds (synthesised) | the repository | a clone is complete on its own |
+| Your racks | `racks/` in the repository, plus any extra rack folders | part of the build; small text |
+| Your samples | `samples/` in the repository, plus any extra sample folders | as above; big or licensed collections belong in an extra folder |
+| Recordings (● takes, Reel bounces) | a chosen folder; default `~/Dropbox/Synth Rack` | music, not source |
+| Session, settings | `~/.synth-rack/` | per machine |
+
+Extra folders are set in Settings… and stored per machine. Samples and racks are found **by
+name**: folders are searched in the listed order, the repository's first, and the first match
+wins, so rack files stay portable between machines. Each kind has a *save new ones in* folder
+(default: the repository); a rack loaded from an extra folder is saved back in place. Only the
+top level of a folder is read.
+
 ### Transport (shared clock)
 
 One transport for the whole rack: play/stop, tempo 40–220 BPM, swing. All sequenced modules
@@ -129,7 +145,7 @@ The ● button in the transport bar records MAIN OUT to `take-YYYYMMDD-HHMMSS.wa
 recordings folder; Reel's BOUNCE writes `reel-….wav` there too. Recordings are the one kind of
 user data that does not live in the repository: the default folder is `~/Dropbox/Synth Rack`
 (`~/Music/Synth Rack` without Dropbox), and it can be changed from the ● button's right-click
-menu or the Audio… dialog. The choice is stored per machine in the session file.
+menu or Settings…. The choice is stored per machine in `~/.synth-rack/settings.json`.
 
 ## 4. Working with the pedalboard
 
@@ -208,6 +224,8 @@ Unknown module types, jacks and params are skipped on load; values are clamped.
 
 ## 8. Backlog (not built)
 
+- Sample folders: read subfolders, and a real browser (search, audition) for large libraries
+  such as a Logic sample collection; the current sound list is a flat menu.
 - Tutorials: `tutorials/` has a first three; grow it as features land (tape, patching, Pedal
   Loop, sound design on Forge) and keep them in step with the UI.
 

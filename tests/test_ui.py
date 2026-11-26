@@ -322,3 +322,59 @@ def test_recordings_go_to_the_chosen_folder_and_the_choice_is_remembered(app, tm
     assert racks.recordings_dir() == target and "Songs" in again.rec.toolTip()
     again.set_recordings_folder(None)
     again.close()
+
+
+def test_racks_are_found_in_extra_folders_and_saved_where_they_live(tmp_path):
+    import json
+
+    from synthrack.racks import FACTORY_RACKS, RackStore
+
+    store = RackStore(tmp_path / "state")
+    shared = tmp_path / "Dropbox" / "Racks"
+    shared.mkdir(parents=True)
+    (shared / "from-elsewhere.json").write_text(json.dumps({**FACTORY_RACKS[1], "name": "From Elsewhere"}))
+    assert store.user_names() == []
+    store.configure([shared])
+    assert store.user_names() == ["From Elsewhere"] and store.load("From Elsewhere")["bpm"] == 96
+    # saving an existing rack rewrites it in place; a new one goes to the project unless told otherwise
+    store.save({**store.load("From Elsewhere"), "bpm": 99})
+    assert json.loads((shared / "from-elsewhere.json").read_text())["bpm"] == 99
+    assert store.save({**FACTORY_RACKS[5], "name": "Local One"}).parent == store.racks_dir
+    store.configure([shared], save_to=shared)
+    assert store.save({**FACTORY_RACKS[5], "name": "Shared One"}).parent == shared
+    assert store.user_names() == ["From Elsewhere", "Local One", "Shared One"]
+    assert store.delete("From Elsewhere") and not (shared / "from-elsewhere.json").exists()
+
+
+def test_extra_folders_show_up_in_the_app_and_are_remembered(app, tmp_path):
+    import json
+
+    from synthrack.dsp.library import LIBRARY, write_wav
+    from synthrack.racks import FACTORY_RACKS
+    from synthrack.ui.main_window import SettingsDialog
+
+    sounds, racks_folder = tmp_path / "Sounds", tmp_path / "Racks"
+    write_wav(sounds / "Zebra Clap.wav", 0.4 * np.sin(np.arange(4800) * 0.1), 48000)
+    racks_folder.mkdir()
+    (racks_folder / "x.json").write_text(json.dumps({**FACTORY_RACKS[1], "name": "Road Rack"}))
+    win = MainWindow(RackStore(tmp_path / "state"))
+    knock = widget(win, "knockbox")
+    assert "Zebra Clap" not in knock.f_sound.choices
+    win.set_folders([sounds], sounds, [racks_folder], None)
+    assert "Zebra Clap" in knock.f_sound.choices
+    assert win.presets.findData("Road Rack") >= 0
+    dialog = SettingsDialog(win.engine.config, win.store, LIBRARY, win)
+    assert dialog.samples.extra() == [sounds] and dialog.samples.save_to() == sounds
+    assert dialog.racks.extra() == [racks_folder] and dialog.racks.save_to() is None
+    dialog.samples.list.setCurrentRow(0)
+    dialog.samples._remove()                     # the project's own folder cannot be removed
+    assert dialog.samples.extra() == [sounds]
+    dialog.grab()
+    win.close()
+
+    again = MainWindow(RackStore(tmp_path / "state"))
+    assert "Zebra Clap" in widget(again, "knockbox").f_sound.choices
+    assert LIBRARY.write_root == sounds and again.presets.findData("Road Rack") >= 0
+    again.set_folders()
+    again.close()
+    assert LIBRARY.extra == []

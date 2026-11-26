@@ -417,3 +417,29 @@ def test_imported_samples_can_be_renamed_and_deleted_but_factory_ones_cannot(tmp
     assert [p.name for p in trashed] == ["Thud.wav"] and library.user_names() == ["Door Slam"]
     with pytest.raises(ValueError):
         library.delete("Kick Punch")
+
+
+def test_library_searches_extra_folders_in_order_and_saves_where_told(tmp_path):
+    built_in, shared = tmp_path / "samples", tmp_path / "Dropbox" / "Samples"
+    for folder, stem, sr in ((built_in, "Thud", 48000), (shared, "Thud", 22050), (shared, "Rain", 44100)):
+        write_wav(folder / f"{stem}.wav", 0.5 * np.sin(np.arange(4000) * 0.05), sr)
+    (shared / "Nested").mkdir()
+    write_wav(shared / "Nested" / "Deep.wav", np.zeros(4000) + 0.1, 48000)
+    library = Library(built_in)
+    assert library.user_names() == ["Thud"]
+    library.configure([shared, tmp_path / "not there"])
+    assert library.user_names() == ["Thud", "Rain"]              # top level only; missing folders are fine
+    assert library.get("Thud").sr == 48000, "the project's own folder wins a name clash"
+    assert library.get("Rain").sr == 44100
+
+    assert library.write_root == built_in
+    library.configure([shared], save_to=shared)
+    outside = tmp_path / "Downloads" / "Bird.wav"
+    write_wav(outside, 0.3 * np.sin(np.arange(4000) * 0.2), 48000)
+    assert library.import_file(outside) == "Bird" and (shared / "Bird.wav").exists()
+    assert library.import_file(shared / "Rain.wav") == "Rain"   # already somewhere we look: no copy
+    name = library.add_recording(np.ones(2000, dtype=np.float32) * 0.2, 48000)
+    assert (shared / f"{name}.wav").exists() and not list(built_in.glob("rec-*"))
+    library.configure([shared], save_to=tmp_path / "elsewhere")  # not a folder we search: ignored
+    assert library.write_root == built_in
+    assert library.rename("Rain", "Storm") == "Storm" and (shared / "Storm.wav").exists()

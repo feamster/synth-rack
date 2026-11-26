@@ -258,17 +258,48 @@ class RackStore:
         self.racks_dir = self.root / "racks" if root else racks_dir()
         self.session_path = self.root / "session.json"
         self.session_assets = self.root / "session.tape"
+        self.settings_path = self.root / "settings.json"
+        self.extra_dirs: list = []           # more folders to look in for racks
+        self.save_dir: Path | None = None    # where new racks are saved; None = racks_dir
 
-    def _user_racks(self) -> dict:
-        racks = {}
-        if self.racks_dir.is_dir():
-            for path in sorted(self.racks_dir.glob("*.json")):
+    def configure(self, extra=(), save_to=None) -> None:
+        self.extra_dirs = [Path(p).expanduser() for p in extra]
+        self.save_dir = Path(save_to).expanduser() if save_to else None
+
+    def folders(self) -> list:
+        """Every folder searched for racks, in order. The first one holding a name wins."""
+        seen, out = set(), []
+        for folder in (self.racks_dir, *self.extra_dirs):
+            if str(folder) not in seen:
+                seen.add(str(folder))
+                out.append(Path(folder))
+        return out
+
+    @property
+    def write_dir(self) -> Path:
+        return self.save_dir if self.save_dir in self.folders() else self.racks_dir
+
+    def _rack_files(self) -> dict:
+        """Rack name -> (data, path) across every folder."""
+        racks: dict = {}
+        for folder in self.folders():
+            if not folder.is_dir():
+                continue
+            for path in sorted(folder.glob("*.json")):
                 try:
                     data = json.loads(path.read_text())
-                    racks[data["name"]] = data
-                except (OSError, ValueError, KeyError, TypeError):
+                    racks.setdefault(data["name"], (data, path))
+                except (OSError, ValueError, KeyError, TypeError, AttributeError):
                     continue
         return racks
+
+    def _user_racks(self) -> dict:
+        return {name: data for name, (data, _) in self._rack_files().items()}
+
+    def path_of(self, name: str) -> Path:
+        """The file a rack is (or would be) saved in: where it already lives, else the save folder."""
+        found = self._rack_files().get(name)
+        return found[1] if found else self.write_dir / f"{_slug(name)}.json"
 
     def factory_names(self) -> list[str]:
         return [r["name"] for r in FACTORY_RACKS]
@@ -289,29 +320,27 @@ class RackStore:
         raise KeyError(name)
 
     def assets_dir(self, name: str) -> Path:
-        return self.racks_dir / f"{_slug(name)}.tape"
+        return self.path_of(name).with_suffix(".tape")
 
     def save(self, rack: dict, modules=()) -> Path:
-        self.racks_dir.mkdir(parents=True, exist_ok=True)
-        path = self.racks_dir / f"{_slug(rack['name'])}.json"
+        path = self.path_of(rack["name"])
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(rack, indent=1))
-        save_assets(modules, self.assets_dir(rack["name"]))
+        save_assets(modules, path.with_suffix(".tape"))
         return path
 
     def delete(self, name: str) -> bool:
-        path = self.racks_dir / f"{_slug(name)}.json"
-        shutil.rmtree(self.assets_dir(name), ignore_errors=True)
-        if path.exists():
-            path.unlink()
-            return True
-        return False
+        found = self._rack_files().get(name)
+        if not found:
+            return False
+        shutil.rmtree(found[1].with_suffix(".tape"), ignore_errors=True)
+        found[1].unlink()
+        return True
 
     def rename_sample(self, old: str, new: str) -> int:
         """Point saved racks at a renamed sample. Returns how many files changed."""
         changed = 0
-        if not self.racks_dir.is_dir():
-            return 0
-        for path in sorted(self.racks_dir.glob("*.json")):
+        for path in sorted(p for folder in self.folders() if folder.is_dir() for p in folder.glob("*.json")):
             try:
                 data = json.loads(path.read_text())
             except (OSError, ValueError):
@@ -327,6 +356,18 @@ class RackStore:
                 path.write_text(json.dumps(data, indent=1))
                 changed += 1
         return changed
+
+    # settings: per-machine choices that are not part of a rack ---------------
+    def load_settings(self) -> dict:
+        try:
+            data = json.loads(self.settings_path.read_text())
+            return data if isinstance(data, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def save_settings(self, settings: dict) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.settings_path.write_text(json.dumps(settings, indent=1))
 
     # session ---------------------------------------------------------
     def load_session(self) -> dict:

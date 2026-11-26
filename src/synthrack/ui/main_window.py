@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -30,7 +31,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .. import __version__, racks
-from ..dsp.library import write_wav
+from ..dsp.library import LIBRARY, write_wav
 from ..dsp.transport import BPM_MAX, BPM_MIN, SWING_MAX
 from ..engine import BLOCK_SIZES, SAMPLE_RATES, AudioConfig, AudioEngine, list_devices
 from ..racks import RackStore, build_rack, rack_tempo, rack_to_dict, recordings_dir, tidy_path
@@ -63,6 +64,9 @@ QMenu {{ color: {UI_TEXT}; background: #24272b; border: 1px solid #3a3f46; paddi
 QMenu::item {{ padding: 5px 22px; border-radius: 4px; }}
 QMenu::item:selected {{ background: #3d444c; }}
 QMenu::item:disabled {{ color: {UI_DIM}; }}
+QListWidget {{ color: {UI_TEXT}; background: #0c0d0e; border: none; border-radius: 4px;
+               font-size: 12px; padding: 2px; }}
+QListWidget::item:selected {{ background: #37393d; color: #ffffff; }}
 QScrollArea {{ border: none; background: #0c0d0e; }}
 QScrollBar:vertical {{ background: #101113; width: 11px; }}
 QScrollBar::handle:vertical {{ background: #3a3f46; border-radius: 5px; min-height: 40px; }}
@@ -77,12 +81,75 @@ def _caption(text: str) -> QLabel:
     return label
 
 
-class SettingsDialog(QDialog):
-    def __init__(self, config: AudioConfig, parent=None):
+class FolderList(QWidget):
+    """A built-in folder plus any number of extra ones, and which of them new files are saved in."""
+
+    def __init__(self, builtin: Path, extra, save_to, noun: str, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Audio and Recording Settings")
+        self.builtin = Path(builtin)
+        self.noun = noun
+        column = QVBoxLayout(self)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(6)
+        self.list = QListWidget()
+        self.list.setFixedHeight(74)
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list.setTextElideMode(Qt.TextElideMode.ElideMiddle)
+        column.addWidget(self.list)
+        row = QHBoxLayout()
+        add = QPushButton("Add Folder…")
+        add.clicked.connect(self._add)
+        self.remove_button = QPushButton("Remove")
+        self.remove_button.clicked.connect(self._remove)
+        row.addWidget(add)
+        row.addWidget(self.remove_button)
+        row.addStretch(1)
+        row.addWidget(QLabel("Save new ones in"))
+        self.save = QComboBox()
+        self.save.setMinimumWidth(170)
+        row.addWidget(self.save)
+        column.addLayout(row)
+        self._extra = [Path(p) for p in extra]
+        self._fill(Path(save_to) if save_to else None)
+
+    def _fill(self, save_to) -> None:
+        self.list.clear()
+        self.save.clear()
+        self.list.addItem(f"{tidy_path(self.builtin)}   (this project)")
+        self.save.addItem("this project", None)
+        for path in self._extra:
+            self.list.addItem(tidy_path(path))
+            self.save.addItem(path.name or str(path), str(path))
+        self.save.setCurrentIndex(max(0, self.save.findData(str(save_to) if save_to else None)))
+
+    def _add(self) -> None:
+        path = QFileDialog.getExistingDirectory(self, f"Also look for {self.noun} in", str(Path.home()))
+        if path and Path(path) != self.builtin and Path(path) not in self._extra:
+            self._extra.append(Path(path))
+            self._fill(self.save.currentData())
+
+    def _remove(self) -> None:
+        row = self.list.currentRow()
+        if row >= 1:                    # row 0 is the project's own folder
+            del self._extra[row - 1]
+            self._fill(self.save.currentData())
+
+    def extra(self) -> list:
+        return list(self._extra)
+
+    def save_to(self) -> Path | None:
+        data = self.save.currentData()
+        return Path(data) if data else None
+
+
+class SettingsDialog(QDialog):
+    def __init__(self, config: AudioConfig, store: RackStore, library, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
         self.recordings = recordings_dir()
-        self.setMinimumWidth(440)
+        self.samples = FolderList(library.root, library.extra, library.save_to, "samples")
+        self.racks = FolderList(store.racks_dir, store.extra_dirs, store.save_dir, "racks")
+        self.setMinimumWidth(560)
         ins, outs = list_devices()
         form = QFormLayout(self)
         form.setContentsMargins(20, 20, 20, 16)
@@ -124,6 +191,13 @@ class SettingsDialog(QDialog):
         folder.addWidget(self.folder_label, 1)
         folder.addWidget(choose)
         form.addRow("Recordings folder", folder)
+        form.addRow("Sample folders", self.samples)
+        form.addRow("Rack folders", self.racks)
+        hint = QLabel("Samples and racks are found by name, in the order listed; the project's own "
+                      "folder comes first. Only the top level of each folder is searched.")
+        hint.setObjectName("dim")
+        hint.setWordWrap(True)
+        form.addRow(hint)
         note = QLabel("The input device is only opened while a Line In module is patched. "
                       "To feed the pedalboard app, send the output to BlackHole and pick "
                       "BlackHole as its Live Input.")
@@ -322,7 +396,8 @@ class MainWindow(QMainWindow):
         self.cables.setToolTip("Show, dim or hide the patch cables (C)")
         self.cables.clicked.connect(self._cycle_cables)
         row.addWidget(self.cables)
-        settings = QPushButton("Audio…")
+        settings = QPushButton("Settings…")
+        settings.setToolTip("Audio devices, and the folders for recordings, samples and racks")
         settings.clicked.connect(self._open_settings)
         row.addWidget(settings)
         return bar
@@ -448,6 +523,37 @@ class MainWindow(QMainWindow):
         racks.set_recordings_dir(path)
         self.rec.setToolTip(f"Record the main output to {tidy_path(recordings_dir())}\n"
                             "Right-click to choose or open the folder")
+        self._save_settings()
+
+    def set_folders(self, sample_folders=(), samples_save=None, rack_folders=(), racks_save=None) -> None:
+        """Extra places to look for samples and racks, and where new ones are saved."""
+        LIBRARY.configure(sample_folders, samples_save)
+        self.store.configure(rack_folders, racks_save)
+        self._save_settings()
+        self._refresh_presets()
+        for widget in self.rack.widgets:
+            widget.refresh()
+
+    def _save_settings(self) -> None:
+        try:
+            self.store.save_settings({
+                "recordings_dir": str(racks._recordings) if racks._recordings else None,
+                "sample_folders": [str(p) for p in LIBRARY.extra],
+                "samples_save_to": str(LIBRARY.save_to) if LIBRARY.save_to else None,
+                "rack_folders": [str(p) for p in self.store.extra_dirs],
+                "racks_save_to": str(self.store.save_dir) if self.store.save_dir else None,
+            })
+        except OSError:
+            pass
+
+    def _load_settings(self, session: dict) -> None:
+        settings = self.store.load_settings()
+        # the recordings folder used to be kept in the session file
+        racks.set_recordings_dir(settings.get("recordings_dir") or session.get("recordings_dir"))
+        self.rec.setToolTip(f"Record the main output to {tidy_path(recordings_dir())}\n"
+                            "Right-click to choose or open the folder")
+        LIBRARY.configure(settings.get("sample_folders") or (), settings.get("samples_save_to"))
+        self.store.configure(settings.get("rack_folders") or (), settings.get("racks_save_to"))
 
     def _recordings_menu(self, pos) -> None:
         menu = QMenu(self)
@@ -567,11 +673,13 @@ class MainWindow(QMainWindow):
             self._power(True)
 
     def _open_settings(self) -> None:
-        dialog = SettingsDialog(self.engine.config, self)
+        dialog = SettingsDialog(self.engine.config, self.store, LIBRARY, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.engine.config = dialog.result_config()
             if dialog.recordings != recordings_dir():
                 self.set_recordings_folder(dialog.recordings)
+            self.set_folders(dialog.samples.extra(), dialog.samples.save_to(),
+                             dialog.racks.extra(), dialog.racks.save_to())
             if self.engine.running:
                 self._power(True)
 
@@ -607,7 +715,7 @@ class MainWindow(QMainWindow):
     # -- session ------------------------------------------------------
     def _restore_session(self) -> None:
         session = self.store.load_session()
-        self.set_recordings_folder(session.get("recordings_dir"))
+        self._load_settings(session)
         self.engine.config = AudioConfig.from_dict(session["audio"]) if "audio" in session \
             else default_config()
         if self.engine.config.sample_rate:
@@ -630,7 +738,6 @@ class MainWindow(QMainWindow):
             "version": __version__,
             "audio": self.engine.config.to_dict(),
             "master_db": self.engine.master_db,
-            "recordings_dir": str(racks._recordings) if racks._recordings else None,
             "name": self.rack_name,
             "edited": bool(self.edited_label.text()),
             "rack": self._current_rack(self.rack_name),

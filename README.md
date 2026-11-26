@@ -66,7 +66,7 @@ right-click a jack. Press `C` to dim or hide the cables when they are in the way
 - **●** in the top bar records the main output to a `take-….wav`; Reel's BOUNCE writes the tape
   loop the same way. Recordings do not go in this folder: by default they go to
   `~/Dropbox/Synth Rack` (or `~/Music/Synth Rack` on a machine without Dropbox). To change that,
-  right-click ● → *Choose Recordings Folder…*, or use **Audio…**. The choice is remembered per
+  right-click ● → *Choose Recordings Folder…*, or use **Settings…**. The choice is remembered per
   machine.
 - Imported samples are copied to `samples/` in this folder, and every Knockbox and Wander sees
   them. You can also drop audio files there yourself. To **rename or delete** one, right-click
@@ -74,13 +74,28 @@ right-click a jack. Press `C` to dim or hide the cables when they are in the way
   the Trash) and *Show Samples Folder*. Renames are followed through into your saved racks. The
   30 built-in sounds are synthesised, so they can't be renamed or deleted.
 
+### Keeping samples and racks somewhere else too
+
+The project's own `samples/` and `racks/` folders are always used, so a fresh clone works by
+itself. **Settings…** lets you add more folders for each (a Dropbox folder, a sample collection)
+and choose which folder new ones are saved in:
+
+- Everything in the listed folders shows up together in the sound lists and the RACK menu.
+- Things are found by name, in the order listed, and the project's folder comes first, so a rack
+  that names a sample finds it wherever it lives.
+- *Save new ones in* decides where LOAD, SMPL and Save As write. A rack you loaded from another
+  folder is saved back where it came from.
+- Only the top level of each folder is read (no subfolders yet).
+
+These choices are per machine (`~/.synth-rack/settings.json`).
+
 ## With the pedalboard
 
 - **Inside the rack:** add *Pedal Loop*, choose a board, patch through it. It reads
   `../pedalboard/boards` and never writes there.
-- **Into the pedalboard app:** Audio… → output to *BlackHole 2ch*, then choose BlackHole as the
+- **Into the pedalboard app:** Settings… → output to *BlackHole 2ch*, then choose BlackHole as the
   pedalboard's Live Input.
-- **Guitar into the rack:** add *Line In* and patch it. Audio… sets the input device and channel.
+- **Guitar into the rack:** add *Line In* and patch it. Settings… sets the input device and channel.
 
 ## License
 

@@ -226,18 +226,52 @@ def write_wav(path: Path, audio: np.ndarray, sr: int) -> None:
 class Library:
     def __init__(self, folder: Path | None = None):
         self.folder = Path(folder) if folder else None
+        self.extra: list = []            # more folders to look in, after the built-in one
+        self.save_to: Path | None = None  # where imports and recordings go; None = the built-in one
         self._factory: dict | None = None
         self._user: dict = {}
 
     @property
     def root(self) -> Path:
+        """The built-in folder: ``samples/`` in the repository."""
         return self.folder or samples_dir()
 
+    def folders(self) -> list:
+        """Every folder searched, in order. The first one holding a name wins."""
+        seen, out = set(), []
+        for folder in (self.root, *self.extra):
+            key = str(Path(folder).expanduser())
+            if key not in seen:
+                seen.add(key)
+                out.append(Path(key))
+        return out
+
+    @property
+    def write_root(self) -> Path:
+        """Where new samples are written."""
+        if self.save_to is not None and Path(self.save_to).expanduser() in self.folders():
+            return Path(self.save_to).expanduser()
+        return self.root
+
+    def configure(self, extra=(), save_to=None) -> None:
+        self.extra = [Path(p).expanduser() for p in extra]
+        self.save_to = Path(save_to).expanduser() if save_to else None
+        self._user = {}                  # names may now resolve to different files
+
     def _files(self) -> dict:
-        if not self.root.is_dir():
-            return {}
-        return {p.stem: p for p in sorted(self.root.iterdir())
-                if p.suffix.lower() in AUDIO_SUFFIXES and p.stem not in FACTORY_NAMES}
+        files: dict = {}
+        for folder in self.folders():    # top level of each folder only
+            if not folder.is_dir():
+                continue
+            try:
+                entries = sorted(folder.iterdir())
+            except OSError:
+                continue
+            for p in entries:
+                if p.suffix.lower() in AUDIO_SUFFIXES and p.stem not in FACTORY_NAMES \
+                        and not p.name.startswith("."):
+                    files.setdefault(p.stem, p)
+        return files
 
     def user_names(self) -> list[str]:
         return list(self._files())
@@ -273,18 +307,21 @@ class Library:
         """Copy an audio file into the library and return its sample name."""
         path = Path(path)
         decode_file(path)                      # raises if it is not audio we can read
-        if path.parent.resolve() == self.root.resolve():
-            return path.stem
+        if any(path.parent.resolve() == f.resolve() for f in self.folders() if f.is_dir()):
+            return path.stem                   # already in a folder we search
         existing = self._files().get(path.stem)
         if existing is not None and existing.stat().st_size == path.stat().st_size:
             return path.stem                   # already imported
         name = self._free_name(path.stem)
-        self.root.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(path, self.root / f"{name}{path.suffix.lower()}")
+        self.write_root.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, self.write_root / f"{name}{path.suffix.lower()}")
         return name
 
     def is_user(self, name: str) -> bool:
         return name in self._files()
+
+    def path_of(self, name: str) -> Path | None:
+        return self._files().get(name)
 
     def rename(self, old: str, new: str) -> str:
         """Rename an imported sample's file. Returns the name it ended up with."""
@@ -320,7 +357,7 @@ class Library:
         peak = float(np.abs(data).max()) if len(data) else 0.0
         if peak > 1e-4:
             data = data * min(4.0, 0.9 / peak)
-        write_wav(self.root / f"{name}.wav", data, sr)
+        write_wav(self.write_root / f"{name}.wav", data, sr)
         return name
 
 

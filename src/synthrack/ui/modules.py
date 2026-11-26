@@ -73,8 +73,9 @@ def sample_actions(widget, menu, name: str, library) -> dict:
             rack.forget_sample(name)
 
     def do_reveal():
-        library.root.mkdir(parents=True, exist_ok=True)
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(library.root)))
+        folder = library.path_of(name).parent if mine else library.write_root
+        folder.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
     return {rename: do_rename, delete: do_delete, reveal: do_reveal}
 
