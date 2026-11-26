@@ -1,0 +1,9 @@
+# Runtime
+pedalboard>=0.9.0
+PyQt6>=6.5.0
+numpy>=1.24.0
+sounddevice>=0.4.6
+
+# Development
+pytest>=7.4.0
+ruff>=0.4.0
