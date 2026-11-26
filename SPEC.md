@@ -58,7 +58,8 @@ are queued to the end of its pattern, and boxes with *Link patterns* on change t
 
 ### Keyboard
 
-Space = play/stop (starts the engine if it is off). `[` `]` = select previous/next module.
+Space = play/stop (starts the engine if it is off). Clicking anything on a module selects it
+(its name is underlined); `[` `]` = select previous/next module.
 `C` = show / dim / hide cables.
 The selected module gets the rest of the keys:
 
@@ -98,6 +99,11 @@ The selected module gets the rest of the keys:
 file for the selected track (or drop a file on the module); SMPL records the **in** jack into
 the track. Imported files are copied to `samples/` and are then in every Knockbox's sound list
 next to the synthesised factory library.
+
+The sample library is shared by every Knockbox and Wander. Right-click either one to rename or
+delete the imported sample it is using (delete moves the file to the Trash; tracks using it
+fall back to their default sound) or to open the samples folder. A rename is written through to
+the tracks on the rack and to saved racks. Factory sounds have no file and cannot be changed.
 
 **Forge** tracks are synthesised by a machine: Kick, Snare, Hat, Clap, Tom, FM, Bass, Lead,
 Chord, Noise. Each machine has tune, decay and three macro knobs whose meaning it names.

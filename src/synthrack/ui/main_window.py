@@ -32,6 +32,7 @@ from ..dsp.library import write_wav
 from ..dsp.transport import BPM_MAX, BPM_MIN, SWING_MAX
 from ..engine import BLOCK_SIZES, SAMPLE_RATES, AudioConfig, AudioEngine, list_devices
 from ..racks import RackStore, build_rack, rack_tempo, rack_to_dict, recordings_dir
+from .module_widget import ModuleWidget
 from .rack_view import ModuleBrowser, RackView
 from .theme import RACK_SKINS, ROW_H, UI_ACCENT, UI_BG, UI_DIM, UI_PANEL, UI_TEXT
 from .widgets import Knob, LevelMeter, PowerButton, TransportButton
@@ -158,6 +159,7 @@ class MainWindow(QMainWindow):
         self.rack.edited.connect(self._mark_edited)
         self.rack.need_engine.connect(self._ensure_engine)
         self.rack.need_play.connect(lambda: self._play(True))
+        self.rack.sample_renamed.connect(lambda old, new: self.store.rename_sample(old, new))
 
         central = QWidget()
         column = QVBoxLayout(central)
@@ -307,8 +309,8 @@ class MainWindow(QMainWindow):
         column = QVBoxLayout(shelf)
         column.setContentsMargins(0, 5, 0, 0)
         column.setSpacing(0)
-        hint = _caption("SPACE  PLAY      [ ]  SELECT MODULE      A W S E D F…  PLAY IT      "
-                        "C  CABLES      DRAG JACK TO JACK TO PATCH")
+        hint = _caption("SPACE  PLAY      CLICK A MODULE, THEN  A W S E D F T G Y H U J K  PLAY IT      "
+                        "Z X  OCTAVE      C  CABLES      DRAG JACK TO JACK TO PATCH")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         column.addWidget(hint)
         column.addWidget(ModuleBrowser(self.rack))
@@ -317,11 +319,20 @@ class MainWindow(QMainWindow):
     # -- keyboard -----------------------------------------------------
     def eventFilter(self, obj, event):
         kind = event.type()
+        if kind == QEvent.Type.MouseButtonPress and isinstance(obj, QWidget):
+            self._select_module_under(obj)    # clicking anything on a module makes it the played one
         if kind in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease) and self._keys_are_ours(event):
             if self.handle_key(event.key(), kind == QEvent.Type.KeyPress, event.isAutoRepeat(),
                                event.modifiers()):
                 return True
         return super().eventFilter(obj, event)
+
+    def _select_module_under(self, widget) -> None:
+        while widget is not None and widget is not self.rack:
+            if isinstance(widget, ModuleWidget) and widget in self.rack.widgets:
+                self.rack.select(widget)
+                return
+            widget = widget.parentWidget()
 
     def _keys_are_ours(self, event) -> bool:
         if not self.isActiveWindow() or QApplication.activePopupWidget() is not None:

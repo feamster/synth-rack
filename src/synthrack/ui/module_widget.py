@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QPen, QPixmap
+from PyQt6.QtGui import QColor, QFontMetricsF, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QWidget
 
 from .theme import PANEL_H, draw_panel, finish_of, fit_font, font
@@ -227,11 +227,13 @@ class ModuleWidget(QWidget):
         else:
             p.setFont(fit_font(name, room, 12, bold=True, family="logo", spacing=2.0))
             p.drawText(QRectF(22, 4, room, HEADER_H - 4), Qt.AlignmentFlag.AlignCenter, name)
-        if self.selected:       # a short accent line under the name: the keyboard plays this module
+        if self.selected:       # an accent line under the whole name: the keyboard plays this module
+            name_w = QFontMetricsF(p.font() if not wide else font(13, bold=True, family="logo", spacing=3.5)
+                                   ).horizontalAdvance(name) - (3.5 if wide else 2.0)
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(accent)
-            x = 22.0 if wide else self.width() / 2.0 - 9.0
-            p.drawRect(QRectF(x, HEADER_H - 1, 18, 2))
+            x = 22.0 if wide else (self.width() - name_w) / 2.0
+            p.drawRect(QRectF(x, HEADER_H - 2, name_w, 2.5))
         if self.jacks and self.width() >= 160:   # hairline setting off the jack strip
             x = self.width() - STRIP_W - 4.5
             line = QColor(text)

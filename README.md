@@ -22,8 +22,10 @@ builds the virtualenv itself on first run, so the two lines above become optiona
 ln -sf "$(pwd)/bin/synth-rack" ~/.local/bin/synth-rack
 ```
 
-Press **Space**. The factory rack *First Light* plays a groove on both drum machines; select
-Wander with `]` and play over it on `A W S E D F T G Y H U J K` (`Z` / `X` change octave).
+Press **Space**. The factory rack *First Light* plays a groove on both drum machines. Click
+anywhere on Wander (its name gets an underline: that module now has the keyboard) and play over
+it on `A W S E D F T G Y H U J K`; `Z` / `X` change octave. The same keys play whichever
+module you clicked last: on a drum machine they play the selected track chromatically.
 
 ## The modules
 
@@ -62,7 +64,11 @@ right-click a jack. Press `C` to dim or hide the cables when they are in the way
 - **Save** stores the rack (modules, knobs, patterns, cables, tape) in `racks/`.
 - **●** in the top bar records the main output to `recordings/take-….wav`.
 - Reel's BOUNCE writes the tape loop to `recordings/`.
-- Imported samples are copied to `samples/`. You can also drop audio files there yourself.
+- Imported samples are copied to `samples/` in this folder, and every Knockbox and Wander sees
+  them. You can also drop audio files there yourself. To **rename or delete** one, right-click
+  the Knockbox or Wander that is using it: *Rename Sample…*, *Delete Sample…* (moves the file to
+  the Trash) and *Show Samples Folder*. Renames are followed through into your saved racks. The
+  30 built-in sounds are synthesised, so they can't be renamed or deleted.
 
 ## With the pedalboard
 

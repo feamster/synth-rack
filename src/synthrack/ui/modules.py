@@ -6,9 +6,9 @@ import math
 import time
 
 import numpy as np
-from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
-from PyQt6.QtWidgets import QFileDialog, QWidget
+from PyQt6.QtCore import QFile, QPointF, QRectF, Qt, QUrl
+from PyQt6.QtGui import QColor, QDesktopServices, QPainter, QPainterPath, QPen
+from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox, QWidget
 
 from ..dsp.groovebox import LENGTHS, PATTERN_NAMES, TRIG_PARAMS, note_name
 from ..dsp.library import LIBRARY, write_wav
@@ -36,6 +36,47 @@ DIGITS = (Qt.Key.Key_1, Qt.Key.Key_2, Qt.Key.Key_3, Qt.Key.Key_4,
 
 def _stamp() -> str:
     return time.strftime("%Y%m%d-%H%M%S")
+
+
+def _to_trash(path) -> bool:
+    return QFile.moveToTrash(str(path))
+
+
+def sample_actions(widget, menu, name: str, library) -> dict:
+    """Context-menu entries for the sample a module is using: rename, delete, show the folder."""
+    mine = library.is_user(name)
+    rename = menu.addAction(f"Rename Sample “{name}”…" if mine else "Rename Sample…")
+    delete = menu.addAction(f"Delete Sample “{name}”…" if mine else "Delete Sample…")
+    for action in (rename, delete):
+        action.setEnabled(mine)        # built-in sounds are synthesised; there is no file
+    reveal = menu.addAction("Show Samples Folder")
+    rack = widget.rack
+
+    def do_rename():
+        new, ok = QInputDialog.getText(widget, "Rename Sample", "Sample name:", text=name)
+        if ok and new.strip() and new.strip() != name:
+            try:
+                rack.rename_sample(name, library.rename(name, new))
+            except (OSError, ValueError) as exc:
+                QMessageBox.warning(widget, "Rename Sample", str(exc))
+
+    def do_delete():
+        answer = QMessageBox.question(
+            widget, "Delete Sample", f"Move “{name}” to the Trash?\n\n"
+            "Tracks in this rack that use it go back to their default sound.")
+        if answer == QMessageBox.StandardButton.Yes:
+            try:
+                library.delete(name, _to_trash)
+            except (OSError, ValueError) as exc:
+                QMessageBox.warning(widget, "Delete Sample", str(exc))
+                return
+            rack.forget_sample(name)
+
+    def do_reveal():
+        library.root.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(library.root)))
+
+    return {rename: do_rename, delete: do_delete, reveal: do_reveal}
 
 
 # ---------------------------------------------------------------------------
@@ -541,6 +582,11 @@ class KnockboxWidget(GrooveBoxWidget):
         self.edited.emit()
         return True
 
+    def menu_actions(self, menu) -> dict:
+        actions = sample_actions(self, menu, self.track.sound, self.module.library)
+        menu.addSeparator()
+        return {**actions, **super().menu_actions(menu)}
+
     def _sample(self) -> None:
         box = self.module
         box.command("sample", not box.sampling, box.selected)
@@ -699,6 +745,9 @@ class WanderWidget(ModuleWidget):
         if ENGINES[int(synth.get("engine"))] != "Sample":
             self._set("engine", ENGINES.index("Sample"))
         self.edited.emit()
+
+    def menu_actions(self, menu) -> dict:
+        return sample_actions(self, menu, self.module.sample_name, self.module.library)
 
     def _toggle_hold(self) -> None:
         self._set("hold", 0 if int(self.module.get("hold")) else 1)

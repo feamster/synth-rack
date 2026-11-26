@@ -253,3 +253,43 @@ def test_every_factory_rack_and_finish_builds_and_ticks(window):
             w.rebuild()
         assert any(isinstance(c, Knob) for c in w.controls.values()) or w.module.TYPE == "mainout"
     window.grab()
+
+
+def test_clicking_any_control_selects_its_module_for_the_keyboard(window, app):
+    from PyQt6.QtTest import QTest
+
+    synth = widget(window, "wander")
+    assert window.rack.selected is not synth
+    QTest.mouseClick(synth.controls["cutoff"], Qt.MouseButton.LeftButton)
+    assert window.rack.selected is synth
+    window.handle_key(Qt.Key.Key_F, True)
+    run(window)
+    assert synth.module.sounding() == [65]
+
+
+def test_renaming_and_deleting_a_sample_follows_through_the_rack_and_saved_racks(window, tmp_path):
+    import json
+
+    from synthrack.dsp.library import Library, write_wav
+
+    library = Library(tmp_path / "samples")
+    knock, synth = widget(window, "knockbox"), widget(window, "wander")
+    knock.module.library = synth.module.library = library
+    write_wav(tmp_path / "Clonk.wav", 0.4 * np.sin(np.arange(9600) * 0.1), 48000)
+    knock.select_track(2)
+    assert knock.import_file(str(tmp_path / "Clonk.wav"))
+    synth._sample_chosen(library.names().index("Clonk"))
+    window.store.save(window._current_rack("Keeper"), window.rack.modules())
+
+    window.rack.rename_sample("Clonk", library.rename("Clonk", "Door Slam"))
+    assert knock.module.tracks[2].sound == "Door Slam" and synth.module.sample_name == "Door Slam"
+    assert knock.f_sound.choices[knock.f_sound.index] == "Door Slam"
+    saved = json.loads((window.store.racks_dir / "keeper.json").read_text())
+    sounds = [t.get("sound") for m in saved["modules"] if m["type"] == "knockbox" for t in m["tracks"]]
+    assert "Door Slam" in sounds and "Clonk" not in sounds
+    assert "Door Slam" in [m.get("sample") for m in saved["modules"]]
+
+    library.delete("Door Slam")
+    window.rack.forget_sample("Door Slam")
+    assert knock.module.tracks[2].sound == "Hat Closed" and synth.module.sample_name == "Keys"
+    assert "Door Slam" not in knock.f_sound.choices

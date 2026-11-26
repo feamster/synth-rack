@@ -396,3 +396,24 @@ def test_groovebox_patterns_locks_and_kit_round_trip():
     step = copy.patterns[1].steps[2][17]
     assert copy.tracks[2].sound == "Chord" and copy.tracks[2].values["cutoff"] == 0.4
     assert (step.note, step.length, step.locks) == (67, 3, {"cutoff": 0.9})
+
+
+def test_imported_samples_can_be_renamed_and_deleted_but_factory_ones_cannot(tmp_path):
+    library = Library(tmp_path / "samples")
+    for stem in ("Clonk", "Thud"):
+        write_wav(tmp_path / f"{stem}.wav", 0.5 * np.sin(np.arange(4800) * 0.05), 48000)
+        library.import_file(tmp_path / f"{stem}.wav")
+    sample = library.get("Clonk")
+    assert library.rename("Clonk", "Door: Slam!") == "Door Slam"
+    assert library.user_names() == ["Door Slam", "Thud"] and library.get("Door Slam") is sample
+    assert sample.name == "Door Slam" and library.get("Clonk") is None
+    for bad in ("Thud", "Kick Punch", "  "):
+        with pytest.raises(ValueError):
+            library.rename("Door Slam", bad)
+    with pytest.raises(ValueError):
+        library.rename("Kick Punch", "Mine")
+    trashed = []
+    library.delete("Thud", lambda path: trashed.append(path) or False)    # "couldn't trash": unlink
+    assert [p.name for p in trashed] == ["Thud.wav"] and library.user_names() == ["Door Slam"]
+    with pytest.raises(ValueError):
+        library.delete("Kick Punch")

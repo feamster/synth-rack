@@ -283,6 +283,38 @@ class Library:
         shutil.copyfile(path, self.root / f"{name}{path.suffix.lower()}")
         return name
 
+    def is_user(self, name: str) -> bool:
+        return name in self._files()
+
+    def rename(self, old: str, new: str) -> str:
+        """Rename an imported sample's file. Returns the name it ended up with."""
+        path = self._files().get(old)
+        if path is None:
+            raise ValueError(f"'{old}' is not an imported sample")
+        new = re.sub(r"[^\w\- ]+", "", new).strip()
+        if not new:
+            raise ValueError("a sample needs a name")
+        if new == old:
+            return old
+        if new in self.names():
+            raise ValueError(f"there is already a sample called '{new}'")
+        path.rename(path.with_name(f"{new}{path.suffix}"))
+        sample = self._user.pop(old, None)
+        if sample is not None:
+            sample.name = new
+            self._user[new] = sample
+        return new
+
+    def delete(self, name: str, remover=None) -> None:
+        """Remove an imported sample. ``remover(path)`` can move it to the Trash
+        instead of unlinking it; it returns False if it could not."""
+        path = self._files().get(name)
+        if path is None:
+            raise ValueError(f"'{name}' is not an imported sample")
+        if remover is None or not remover(path):
+            path.unlink()
+        self._user.pop(name, None)
+
     def add_recording(self, data: np.ndarray, sr: int, prefix: str = "rec") -> str:
         name = self._free_name(f"{prefix}-{time.strftime('%m%d-%H%M%S')}")
         peak = float(np.abs(data).max()) if len(data) else 0.0

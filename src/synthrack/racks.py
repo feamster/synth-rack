@@ -281,6 +281,28 @@ class RackStore:
             return True
         return False
 
+    def rename_sample(self, old: str, new: str) -> int:
+        """Point saved racks at a renamed sample. Returns how many files changed."""
+        changed = 0
+        if not self.racks_dir.is_dir():
+            return 0
+        for path in sorted(self.racks_dir.glob("*.json")):
+            try:
+                data = json.loads(path.read_text())
+            except (OSError, ValueError):
+                continue
+            hit = False
+            for module in data.get("modules", []):
+                if module.get("sample") == old:
+                    module["sample"], hit = new, True
+                for track in module.get("tracks", []):
+                    if isinstance(track, dict) and track.get("sound") == old:
+                        track["sound"], hit = new, True
+            if hit:
+                path.write_text(json.dumps(data, indent=1))
+                changed += 1
+        return changed
+
     # session ---------------------------------------------------------
     def load_session(self) -> dict:
         try:

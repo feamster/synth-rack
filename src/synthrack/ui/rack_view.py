@@ -95,6 +95,7 @@ class RackView(QWidget):
     edited = pyqtSignal()              # anything at all changed
     need_engine = pyqtSignal()         # a module wants audio running (a key was played)
     need_play = pyqtSignal()           # ... and the transport rolling (tape record)
+    sample_renamed = pyqtSignal(str, str)
 
     def __init__(self, sample_rate_getter, transport, parent=None):
         super().__init__(parent)
@@ -210,6 +211,32 @@ class RackView(QWidget):
                 if other is not box and isinstance(other, GrooveBox) and other.link:
                     other.select_pattern(index)
                     w.refresh()
+
+    # -- the sample library, as far as the modules on the rack are concerned --
+    def rename_sample(self, old: str, new: str) -> None:
+        """An imported sample was renamed: keep every track that plays it pointing at it."""
+        for w in self.widgets:
+            module = w.module
+            for track in getattr(module, "tracks", ()):
+                if getattr(track, "sample", None) is not None and track.sound == old:
+                    track.sound = new
+            if getattr(module, "sample_name", None) == old:
+                module.sample_name = new
+            w.refresh()
+        self.sample_renamed.emit(old, new)
+        self.edited.emit()
+
+    def forget_sample(self, name: str) -> None:
+        """An imported sample was deleted: tracks that played it go back to their default sound."""
+        for w in self.widgets:
+            module = w.module
+            for t, track in enumerate(getattr(module, "tracks", ())):
+                if getattr(track, "sample", None) is not None and track.sound == name:
+                    module.set_sound(t, module.DEFAULT_KIT[t])
+            if getattr(module, "sample_name", None) == name:
+                module.set_sample("Keys")
+            w.refresh()
+        self.edited.emit()
 
     # -- layout: modules flow left to right and wrap into rows --------------
     def _flow(self, widgets) -> list:
