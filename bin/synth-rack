@@ -1,6 +1,5 @@
 #!/bin/bash
-# Launch the app from anywhere. Link this file onto your PATH:
-#   ln -sf "$(pwd)/bin/synth-rack" ~/.local/bin/synth-rack
+# Launch the app from anywhere. ../install.sh links this file onto your PATH.
 # It runs from the repository it lives in and builds the virtualenv on first use.
 set -e
 src="${BASH_SOURCE[0]}"

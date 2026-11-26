@@ -12,16 +12,15 @@ play from the computer keyboard, and run next to (or through) the
 ## Run it
 
 ```
-uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt
-.venv/bin/python src/main.py            # --play starts the music straight away
+git clone git@github.com:feamster/synth-rack.git && cd synth-rack
+./install.sh
+synth-rack                              # --play starts the music straight away
 ```
 
-To start it from anywhere by typing `synth-rack`, link the launcher onto your PATH once (it
-builds the virtualenv itself on first run, so the two lines above become optional):
-
-```
-ln -sf "$(pwd)/bin/synth-rack" ~/.local/bin/synth-rack
-```
+`install.sh` builds the virtualenv and links the launcher into `~/.local/bin`, so `synth-rack`
+works from any terminal. It is safe to run again, and all the link amounts to is
+`ln -sf "$(pwd)/bin/synth-rack" ~/.local/bin/synth-rack`. To run without installing:
+`.venv/bin/python src/main.py`.
 
 The window opens and the terminal prompt comes straight back; anything the app prints goes to
 `~/.synth-rack/last-run.log`. `synth-rack --fg` keeps it attached to the terminal instead.

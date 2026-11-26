@@ -214,7 +214,7 @@ src/synthrack/ui/           theme, widgets, module widgets, rack view, main wind
 
 Unknown module types, jacks and params are skipped on load; values are clamped.
 
-`synth-rack` on the PATH starts it from anywhere (`bin/synth-rack`, linked into `~/.local/bin`).
+`synth-rack` on the PATH starts it from anywhere (`bin/synth-rack`, linked into `~/.local/bin` by `install.sh`).
 
 ## 7. Testing
 
