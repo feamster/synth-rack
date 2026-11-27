@@ -132,7 +132,10 @@ def available_boards() -> dict:
     if fx is None:
         return {}
     boards = {}
-    folder = pedalboard_root() / "boards"
+    try:
+        folder = fx.presets.boards_dir()             # wherever the pedalboard keeps them
+    except AttributeError:
+        folder = pedalboard_root() / "boards"        # an older pedalboard: in its own repo
     if folder.is_dir():
         for path in sorted(folder.glob("*.json")):
             try:

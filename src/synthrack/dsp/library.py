@@ -1,10 +1,10 @@
-"""The sample library: a synthesised factory set plus the user's imported files.
+"""The sample library: a synthesised factory set plus audio files on disk.
 
 Factory sounds are built from sine sweeps, FM and filtered noise the first
-time they are asked for - there are no audio assets in the repository. User
-samples live in ``samples/`` (next to the code, so they travel with it) and
-are decoded on first use. Samples are mono and keep their own sample rate;
-voices compensate when they play them.
+time they are asked for - there are no audio assets in the repository. Sample
+files live with the music (``~/Dropbox/Synth Rack/Samples`` by default), in
+packs, and are decoded on first use. Samples are mono and keep their own
+sample rate; voices compensate when they play them.
 """
 
 from __future__ import annotations
@@ -21,13 +21,21 @@ F32 = np.float32
 FACTORY_SR = 48000
 MAX_SECONDS = 30.0
 AUDIO_SUFFIXES = (".wav", ".aif", ".aiff", ".flac", ".mp3", ".ogg", ".m4a")
-REPO_SAMPLES = Path(__file__).resolve().parents[3] / "samples"
+REPO_SAMPLES = Path(__file__).resolve().parents[3] / "samples"     # where samples used to live
+
+
+def music_dir() -> Path:
+    """Where audio lives (samples, takes, tape): Dropbox if this machine has
+    one, so it is backed up and on every Mac, else ~/Music. None of it belongs
+    in a git repository. ``SYNTHRACK_HOME`` moves it, for tests and scripts."""
+    if "SYNTHRACK_HOME" in os.environ:
+        return Path(os.environ["SYNTHRACK_HOME"])
+    dropbox = Path.home() / "Dropbox"
+    return (dropbox if dropbox.is_dir() else Path.home() / "Music") / "Synth Rack"
 
 
 def samples_dir() -> Path:
-    if "SYNTHRACK_HOME" in os.environ:
-        return Path(os.environ["SYNTHRACK_HOME"]) / "samples"
-    return REPO_SAMPLES
+    return music_dir() / ("samples" if "SYNTHRACK_HOME" in os.environ else "Samples")
 
 
 class Sample:
@@ -223,17 +231,42 @@ def write_wav(path: Path, audio: np.ndarray, sr: int) -> None:
         f.write(audio)
 
 
+BUILT_IN = "Built in"        # the synthesised sounds
+LOOSE = "My Sounds"          # files at the top of a sample folder; a subfolder is a pack
+MAX_FILES = 50000            # stop scanning a runaway folder
+
+
+def pack_of(name: str) -> str:
+    """The pack a sample name belongs to: ``"808 Kit/Kick 1"`` -> ``"808 Kit"``."""
+    if "/" in name:
+        return name.rsplit("/", 1)[0]
+    return BUILT_IN if name in FACTORY_NAMES else LOOSE
+
+
+def leaf(name: str) -> str:
+    """A sample name without its pack, for small displays."""
+    return name.rsplit("/", 1)[-1]
+
+
 class Library:
+    """Every sound a module can play: the built-in ones, then audio files in
+    the sample folders. A file is named by its path inside its folder without
+    the extension, so ``Samples/808 Kit/Kick 1.wav`` is ``"808 Kit/Kick 1"``:
+    subfolders are packs, and a rack that names a sample finds it on any Mac."""
+
     def __init__(self, folder: Path | None = None):
         self.folder = Path(folder) if folder else None
-        self.extra: list = []            # more folders to look in, after the built-in one
-        self.save_to: Path | None = None  # where imports and recordings go; None = the built-in one
+        self.extra: list = []            # more folders to look in, after the main one
+        self.save_to: Path | None = None  # where imports and recordings go; None = the main one
         self._factory: dict | None = None
         self._user: dict = {}
+        self._scan: dict | None = None   # name -> path, from the last look at the disk
+        self._stamps: dict = {}          # folder -> mtime when it was scanned
+        self._roots: list = []
 
     @property
     def root(self) -> Path:
-        """The built-in folder: ``samples/`` in the repository."""
+        """The main sample folder (``Samples`` with the music, see ``samples_dir``)."""
         return self.folder or samples_dir()
 
     def folders(self) -> list:
@@ -256,22 +289,100 @@ class Library:
     def configure(self, extra=(), save_to=None) -> None:
         self.extra = [Path(p).expanduser() for p in extra]
         self.save_to = Path(save_to).expanduser() if save_to else None
-        self._user = {}                  # names may now resolve to different files
+        self.refresh()
+
+    def refresh(self) -> None:
+        """Forget what is on disk; names may now resolve to different files."""
+        self._scan = None
+        self._user = {}
+
+    def _stale(self) -> bool:
+        """Has any scanned folder gained, lost or renamed an entry since the scan?"""
+        if self._roots != [str(f) for f in self.folders()]:
+            return True
+        for folder, stamp in self._stamps.items():
+            try:
+                now = os.stat(folder).st_mtime_ns
+            except OSError:
+                now = None
+            if now != stamp:
+                return True
+        return False
 
     def _files(self) -> dict:
+        """Sample name -> file, across every folder and its subfolders."""
+        if self._scan is not None and not self._stale():
+            return self._scan
         files: dict = {}
-        for folder in self.folders():    # top level of each folder only
-            if not folder.is_dir():
-                continue
+        stamps: dict = {}
+        for root in self.folders():
             try:
-                entries = sorted(folder.iterdir())
+                stamps[str(root)] = os.stat(root).st_mtime_ns
             except OSError:
+                stamps[str(root)] = None          # not there (yet); notice when it appears
                 continue
-            for p in entries:
-                if p.suffix.lower() in AUDIO_SUFFIXES and p.stem not in FACTORY_NAMES \
-                        and not p.name.startswith("."):
-                    files.setdefault(p.stem, p)
+            for folder, dirs, names in os.walk(root):
+                dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+                try:
+                    stamps[folder] = os.stat(folder).st_mtime_ns
+                except OSError:
+                    continue
+                pack = Path(folder).relative_to(root).as_posix()
+                for filename in sorted(names):
+                    stem, suffix = os.path.splitext(filename)
+                    if suffix.lower() not in AUDIO_SUFFIXES or filename.startswith("."):
+                        continue
+                    name = stem if pack == "." else f"{pack}/{stem}"
+                    if name not in FACTORY_NAMES:
+                        files.setdefault(name, Path(folder) / filename)
+                if len(files) >= MAX_FILES:
+                    break
+        self._user = {k: v for k, v in self._user.items() if k in files}
+        self._scan, self._stamps, self._roots = files, stamps, [str(f) for f in self.folders()]
         return files
+
+    def groups(self) -> dict:
+        """Pack name -> sample names, built-in sounds first, then loose files, then packs."""
+        out: dict = {BUILT_IN: list(FACTORY_NAMES)}
+        loose, packs = [], {}
+        for name in self._files():
+            if "/" in name:
+                packs.setdefault(pack_of(name), []).append(name)
+            else:
+                loose.append(name)
+        if loose:
+            out[LOOSE] = loose
+        for pack in sorted(packs, key=str.lower):
+            out[pack] = packs[pack]
+        return out
+
+    def siblings(self, name: str) -> list[str]:
+        """The sounds in the same pack as ``name``: what stepping through sounds moves across."""
+        if name in FACTORY_NAMES:
+            return list(FACTORY_NAMES)
+        pack = pack_of(name)
+        return [n for n in self._files() if pack_of(n) == pack] or list(FACTORY_NAMES)
+
+    def import_pack(self, folder: str | Path) -> tuple[str, int]:
+        """Copy a folder of audio (and its subfolders) into the library as a
+        pack. Returns the pack's name and how many files were copied."""
+        folder = Path(folder)
+        base = re.sub(r"[^\w\- ]+", "", folder.name).strip() or "Pack"
+        name, i = base, 2
+        while (self.write_root / name).exists():
+            name, i = f"{base} {i}", i + 1
+        copied = 0
+        for path in sorted(folder.rglob("*")):
+            if path.suffix.lower() in AUDIO_SUFFIXES and path.is_file() \
+                    and not any(part.startswith(".") for part in path.relative_to(folder).parts):
+                target = self.write_root / name / path.relative_to(folder)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(path, target)
+                copied += 1
+        if not copied:
+            raise ValueError(f"no audio files in {folder.name}")
+        self.refresh()
+        return name, copied
 
     def user_names(self) -> list[str]:
         return list(self._files())
@@ -307,14 +418,16 @@ class Library:
         """Copy an audio file into the library and return its sample name."""
         path = Path(path)
         decode_file(path)                      # raises if it is not audio we can read
-        if any(path.parent.resolve() == f.resolve() for f in self.folders() if f.is_dir()):
-            return path.stem                   # already in a folder we search
+        for name, known in self._files().items():
+            if known.resolve() == path.resolve():
+                return name                    # already in a folder we search
         existing = self._files().get(path.stem)
         if existing is not None and existing.stat().st_size == path.stat().st_size:
             return path.stem                   # already imported
         name = self._free_name(path.stem)
         self.write_root.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, self.write_root / f"{name}{path.suffix.lower()}")
+        self._scan = None
         return name
 
     def is_user(self, name: str) -> bool:
@@ -324,32 +437,35 @@ class Library:
         return self._files().get(name)
 
     def rename(self, old: str, new: str) -> str:
-        """Rename an imported sample's file. Returns the name it ended up with."""
+        """Rename a sample's file, keeping it in its pack. Returns the name it ended up with."""
         path = self._files().get(old)
         if path is None:
-            raise ValueError(f"'{old}' is not an imported sample")
-        new = re.sub(r"[^\w\- ]+", "", new).strip()
+            raise ValueError(f"'{leaf(old)}' is not a sample file")
+        new = re.sub(r"[^\w\- ]+", "", leaf(new)).strip()
         if not new:
             raise ValueError("a sample needs a name")
-        if new == old:
+        full = f"{old.rsplit('/', 1)[0]}/{new}" if "/" in old else new
+        if full == old:
             return old
-        if new in self.names():
+        if full in self.names():
             raise ValueError(f"there is already a sample called '{new}'")
         path.rename(path.with_name(f"{new}{path.suffix}"))
         sample = self._user.pop(old, None)
+        self._scan = None
         if sample is not None:
-            sample.name = new
-            self._user[new] = sample
-        return new
+            sample.name = full
+            self._user[full] = sample
+        return full
 
     def delete(self, name: str, remover=None) -> None:
         """Remove an imported sample. ``remover(path)`` can move it to the Trash
         instead of unlinking it; it returns False if it could not."""
         path = self._files().get(name)
         if path is None:
-            raise ValueError(f"'{name}' is not an imported sample")
+            raise ValueError(f"'{name}' is not a sample file")
         if remover is None or not remover(path):
             path.unlink()
+        self._scan = None
         self._user.pop(name, None)
 
     def add_recording(self, data: np.ndarray, sr: int, prefix: str = "rec") -> str:
@@ -358,6 +474,7 @@ class Library:
         if peak > 1e-4:
             data = data * min(4.0, 0.9 / peak)
         write_wav(self.write_root / f"{name}.wav", data, sr)
+        self._scan = None
         return name
 
 

@@ -41,7 +41,9 @@ Try *Vox Ah* with a slow ATTACK for a choir pad, or one of your own recordings.
 
 ## Using your own sounds
 
-- Knockbox **LOAD**, or drag an audio file onto Knockbox: the file is copied into `samples/` and
-  appears in every sound list, including Wander's.
+- Click the sound's name on Knockbox or Wander to open the sound browser. **Add Pack…** brings in
+  a whole folder of sounds; search looks across every pack; clicking a sound plays it.
+- Knockbox **LOAD**, or drag an audio file onto Knockbox: the file is copied into your samples
+  folder (`~/Dropbox/Synth Rack/Samples`) and is available everywhere, including Wander.
 - Knockbox **SMPL** records whatever is patched into its IN jack onto the selected track.
 - Right-click a Knockbox or Wander to rename or delete the sample it is using.

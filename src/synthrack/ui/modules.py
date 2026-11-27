@@ -6,16 +6,17 @@ import math
 import time
 
 import numpy as np
-from PyQt6.QtCore import QFile, QPointF, QRectF, Qt, QUrl
+from PyQt6.QtCore import QFile, QPointF, QRectF, Qt, QTimer, QUrl
 from PyQt6.QtGui import QColor, QDesktopServices, QPainter, QPainterPath, QPen
-from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox, QWidget
+from PyQt6.QtWidgets import QDialog, QFileDialog, QInputDialog, QMessageBox, QWidget
 
 from ..dsp.groovebox import LENGTHS, PATTERN_NAMES, TRIG_PARAMS, note_name
-from ..dsp.library import LIBRARY, write_wav
+from ..dsp.library import LIBRARY, leaf, write_wav
 from ..dsp.reel import BARS, TRACKS
 from ..dsp.wander import ENGINE_LABELS, ENGINES
 from ..racks import recordings_dir, tidy_path
 from .module_widget import HEADER_H, PIANO_KEYS, ModuleWidget
+from .sound_browser import SoundBrowser
 from .theme import (
     FINISHES,
     MODULE_COLORS,
@@ -45,16 +46,16 @@ def _to_trash(path) -> bool:
 def sample_actions(widget, menu, name: str, library) -> dict:
     """Context-menu entries for the sample a module is using: rename, delete, show the folder."""
     mine = library.is_user(name)
-    rename = menu.addAction(f"Rename Sample “{name}”…" if mine else "Rename Sample…")
-    delete = menu.addAction(f"Delete Sample “{name}”…" if mine else "Delete Sample…")
+    rename = menu.addAction(f"Rename Sample “{leaf(name)}”…" if mine else "Rename Sample…")
+    delete = menu.addAction(f"Delete Sample “{leaf(name)}”…" if mine else "Delete Sample…")
     for action in (rename, delete):
         action.setEnabled(mine)        # built-in sounds are synthesised; there is no file
     reveal = menu.addAction("Show Samples Folder")
     rack = widget.rack
 
     def do_rename():
-        new, ok = QInputDialog.getText(widget, "Rename Sample", "Sample name:", text=name)
-        if ok and new.strip() and new.strip() != name:
+        new, ok = QInputDialog.getText(widget, "Rename Sample", "Sample name:", text=leaf(name))
+        if ok and new.strip() and new.strip() != leaf(name):
             try:
                 rack.rename_sample(name, library.rename(name, new))
             except (OSError, ValueError) as exc:
@@ -62,7 +63,7 @@ def sample_actions(widget, menu, name: str, library) -> dict:
 
     def do_delete():
         answer = QMessageBox.question(
-            widget, "Delete Sample", f"Move “{name}” to the Trash?\n\n"
+            widget, "Delete Sample", f"Move “{leaf(name)}” to the Trash?\n\n"
             "Tracks in this rack that use it go back to their default sound.")
         if answer == QMessageBox.StandardButton.Yes:
             try:
@@ -119,7 +120,7 @@ class GrooveScreen(QWidget):
         w = self.width()
         draw_screen(p, QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5))
         p.setPen(accent)
-        title = f"T{box.selected + 1} {track.sound.upper()}"
+        title = f"T{box.selected + 1} {leaf(track.sound).upper()}"
         p.setFont(fit_font(title, w - 70, 13, bold=True, family="mono"))
         p.drawText(QRectF(10, 5, w - 70, 18), Qt.AlignmentFlag.AlignVCenter, title)
         pattern = PATTERN_NAMES[box.pattern]
@@ -240,7 +241,7 @@ class GrooveBoxWidget(ModuleWidget):
 
         self.f_pattern = field("pattern", "Pattern", PATTERN_NAMES, 16, 84, self._pattern_chosen)
         self.f_length = field("length", "Steps", [str(n) for n in LENGTHS], 106, 72, self._length_chosen)
-        self.f_sound = field("sound", "Sound", box.sounds(), 184, 164, self._sound_chosen, menu=True)
+        self.f_sound = field("sound", "Sound", self._sounds(), 184, 164, self._sound_chosen, menu=True)
         self.f_filter = field("filter", "Filter", box.track_param("ftype").choices, 354, 70,
                               lambda i: self._knob_set("ftype", i))
 
@@ -310,7 +311,7 @@ class GrooveBoxWidget(ModuleWidget):
             value = getattr(source, param.key) if source is not None else track.trig[param.key]
             self.trig_knobs[param.key].set_norm(param.to_norm(value))
             self.trig_knobs[param.key].set_locked(step is not None)
-        sounds = box.sounds()
+        sounds = self._sounds()
         self.f_sound.set_choices(sounds, sounds.index(track.sound) if track.sound in sounds else 0)
         shown = box.next_pattern if box.next_pattern is not None else box.pattern
         self.f_pattern.set_index(shown)
@@ -391,20 +392,30 @@ class GrooveBoxWidget(ModuleWidget):
         self.refresh()
         self.edited.emit()
 
+    def _sounds(self) -> list:
+        """What the Sound field steps through."""
+        return self.module.sounds()
+
     def _sound_chosen(self, index: int) -> None:
+        sounds = self._sounds()
+        self._use_sound(sounds[index % len(sounds)])
+
+    def _use_sound(self, name: str, play: bool = True) -> None:
         box = self.module
-        sounds = box.sounds()
-        box.set_sound(box.selected, sounds[index % len(sounds)])
+        box.set_sound(box.selected, name)
         self.refresh()
-        box.play(box.selected)
+        if play:
+            box.play(box.selected)
+            self.rack.need_engine.emit()
         self.edited.emit()
 
     # -- pads and steps ---------------------------------------------
     def _pad_info(self, i: int) -> dict:
         box = self.module
         track = box.tracks[i]
-        words = track.sound.split()
-        label = track.sound if len(track.sound) <= 7 or len(words) < 2 else f"{words[0][:5]} {words[1][0]}"
+        sound = leaf(track.sound)
+        words = sound.split()
+        label = sound if len(sound) <= 7 or len(words) < 2 else f"{words[0][:5]} {words[1][0]}"
         return {"label": label, "selected": i == box.selected, "muted": track.mute,
                 "flash": self.flash[i]}
 
@@ -555,6 +566,26 @@ class KnockboxWidget(GrooveBoxWidget):
     def _build(self) -> None:
         super()._build()
         self.setAcceptDrops(True)
+        self.f_sound.fmt = leaf
+        self.f_sound.picker = self.browse_sounds
+        self.f_sound.setToolTip("Click the name to browse every sound and pack\n"
+                                "The arrows step through the sounds in this pack")
+
+    def _sounds(self) -> list:
+        return self.module.library.siblings(self.track.sound)
+
+    def sound_browser(self) -> SoundBrowser:
+        box = self.module
+        browser = SoundBrowser(box.library, self.track.sound, f"Sound for track {box.selected + 1}",
+                               self.window())
+        browser.previewed.connect(self._use_sound)
+        return browser
+
+    def browse_sounds(self) -> None:
+        """Pick a sound from every pack; each one clicked is heard on the track straight away."""
+        before = self.track.sound
+        if self.sound_browser().exec() != QDialog.DialogCode.Accepted and self.track.sound != before:
+            self._use_sound(before, play=False)
 
     def _extra_pads(self) -> None:
         box = self.module
@@ -703,9 +734,13 @@ class WanderWidget(ModuleWidget):
         self._field("arp_rate", 108, 154, 88)
         self._field("lfo_dest", 16, 194, 88)
         self._field("octave", 108, 194, 88)
-        names = synth.library.names()
+        names = synth.library.siblings(synth.sample_name)
         index = names.index(synth.sample_name) if synth.sample_name in names else 0
         self.f_sample = CycleField("Sample", names, index, self.fin["text"], 180, self, menu=True)
+        self.f_sample.fmt = leaf
+        self.f_sample.picker = self.browse_sounds
+        self.f_sample.setToolTip("Click the name to browse every sound and pack\n"
+                                 "The arrows step through the sounds in this pack")
         self.f_sample.changed.connect(self._sample_chosen)
         self.f_sample.move(16, 234)
         self.controls["_f_sample"] = self.f_sample
@@ -729,7 +764,7 @@ class WanderWidget(ModuleWidget):
         engine = ENGINES[int(synth.get("engine"))]
         for key, label in zip(("color", "shape"), ENGINE_LABELS[engine]):
             self.controls[key].set_label(label)
-        names = synth.library.names()
+        names = synth.library.siblings(synth.sample_name)
         self.f_sample.set_choices(names, names.index(synth.sample_name) if synth.sample_name in names else 0)
         self.controls["_pad_hold"].update()
 
@@ -740,12 +775,33 @@ class WanderWidget(ModuleWidget):
         self.screen.update()
 
     def _sample_chosen(self, index: int) -> None:
+        names = self.module.library.siblings(self.module.sample_name)
+        self._use_sample(names[index % len(names)], play=False)
+
+    def _use_sample(self, name: str, play: bool = True) -> None:
         synth = self.module
-        names = synth.library.names()
-        synth.set_sample(names[index % len(names)])
+        synth.set_sample(name)
         if ENGINES[int(synth.get("engine"))] != "Sample":
             self._set("engine", ENGINES.index("Sample"))
+        self.refresh()
+        if play:                                   # a short middle C, so the sound is heard
+            self._note(60, True)
+            QTimer.singleShot(350, lambda: self._note(60, False))
         self.edited.emit()
+
+    def sound_browser(self) -> SoundBrowser:
+        synth = self.module
+        browser = SoundBrowser(synth.library, synth.sample_name, "Sample for Wander", self.window())
+        browser.previewed.connect(self._use_sample)
+        return browser
+
+    def browse_sounds(self) -> None:
+        synth = self.module
+        before = (synth.sample_name, int(synth.get("engine")))
+        if self.sound_browser().exec() != QDialog.DialogCode.Accepted:
+            synth.set_sample(before[0])
+            self._set("engine", before[1])
+            self.refresh()
 
     def menu_actions(self, menu) -> dict:
         return sample_actions(self, menu, self.module.sample_name, self.module.library)

@@ -29,8 +29,8 @@ The modules are original designs that borrow workflows, not clones.
   Outputs fan out to any number of inputs; several cables into one input are summed. Drag a
   cable's end off an input to unplug it; right-click a jack to clear it. Loops are refused.
 - Only what reaches **MAIN OUT** is heard. MAIN OUT is always on the rack.
-- A **rack** (modules, every knob, patterns, cables, skin, tempo) saves as JSON in `racks/`,
-  versioned with the repo. Factory racks are built in and never overwritten. The session
+- A **rack** (modules, every knob, patterns, cables, skin, tempo) saves as JSON in the presets
+  repo (see *Where things live*). Factory racks are built in and never overwritten. The session
   (last rack state, audio settings) lives in `~/.synth-rack/`.
 
 ### Look
@@ -52,19 +52,38 @@ which new modules must follow (they live in `ui/theme.py` and `ui/widgets.py`):
 
 ### Where things live
 
+The repository is the app only: code, factory racks, factory sounds (synthesised). Nothing the
+user makes is stored in it.
+
 | What | Where | Why |
 |---|---|---|
-| Code, factory racks, factory sounds (synthesised) | the repository | a clone is complete on its own |
-| Your racks | `racks/` in the repository, plus any extra rack folders | part of the build; small text |
-| Your samples | `samples/` in the repository, plus any extra sample folders | as above; big or licensed collections belong in an extra folder |
-| Recordings (● takes, Reel bounces) | a chosen folder; default `~/Dropbox/Synth Rack` | music, not source |
-| Session, settings | `~/.synth-rack/` | per machine |
+| Racks | `synth-rack/` in the **presets repo**: `$GEAR_PRESETS`, else `../gear-presets`; without that checkout, `~/.synth-rack/racks` | small text; its own git history, shared with the pedalboard's boards |
+| Samples and packs | `Samples/` in the **music folder** | audio is large and does not diff |
+| Takes (● recordings, Reel bounces) | `Takes/` in the music folder, or a chosen folder | finished audio |
+| Tape saved with a rack | `Tapes/<rack slug>/` in the music folder | audio that belongs to a rack; kept out of git |
+| Session (incl. its tape), settings | `~/.synth-rack/` | per machine |
 
-Extra folders are set in Settings… and stored per machine. Samples and racks are found **by
-name**: folders are searched in the listed order, the repository's first, and the first match
-wins, so rack files stay portable between machines. Each kind has a *save new ones in* folder
-(default: the repository); a rack loaded from an extra folder is saved back in place. Only the
-top level of a folder is read.
+- The **music folder** is `~/Dropbox/Synth Rack`, or `~/Music/Synth Rack` on a machine without
+  Dropbox. `SYNTHRACK_HOME` moves everything (racks, samples, takes, tape, session) under one
+  folder, for tests and scripts.
+- **Packs.** A sample is named by its path inside its sample folder, without the extension:
+  `Samples/808 Kit/Kick 1.wav` is `"808 Kit/Kick 1"`; a file at the top level is just `"Thud"`.
+  Subfolders nest (`"Tape Kit/Hats/Closed"`). Racks store these names, never paths, so a rack
+  works on any machine that has the pack. Folders are rescanned when their modification time
+  changes, so files added in Finder appear on their own. Hidden folders are skipped.
+- **Sound browser** (`ui/sound_browser.py`): packs, sounds, search across all packs. Clicking a
+  sound puts it on the track and plays it through the engine (so it is heard in context);
+  Cancel restores the previous sound. *Add Pack…* copies a folder in as a pack.
+- **Extra folders.** Settings… can add more sample folders and rack folders, stored per machine.
+  Lookup is by name in the listed order, main folder first; the first match wins. Each kind has
+  a *save new ones in* folder (default: the main one); a rack loaded from an extra folder is
+  saved back in place.
+- **History.** Saving, deleting or (through a sample rename) rewriting a rack makes a local git
+  commit of just that file when its folder is a git checkout (`racks.git_commit`). Never pushes.
+- **Moving in.** Earlier versions kept `racks/` and `samples/` in this repository and `.tape`
+  folders beside rack files. On start, files still in those places are moved to the current
+  ones (`racks.adopt_legacy`); a `.tape` folder beside a rack is read if `Tapes/` has none and
+  is removed on the next save.
 
 ### Transport (shared clock)
 
@@ -113,8 +132,9 @@ The selected module gets the rest of the keys:
 
 **Knockbox** tracks play samples: tune, start, length, attack, decay. LOAD imports an audio
 file for the selected track (or drop a file on the module); SMPL records the **in** jack into
-the track. Imported files are copied to `samples/` and are then in every Knockbox's sound list
-next to the synthesised factory library.
+the track. Imported files are copied to the samples folder and are then available to every
+Knockbox and Wander next to the synthesised factory library. Clicking the SOUND name opens the
+sound browser; its arrows step through the current pack.
 
 The sample library is shared by every Knockbox and Wander. Right-click either one to rename or
 delete the imported sample it is using (delete moves the file to the Trash; tracks using it
@@ -137,14 +157,14 @@ keyboard; the screen is a live scope.
 Four stereo tracks over a loop of 1/2/4/8 bars. REC records the **in** jack onto the selected
 track while the transport runs (overdubs add). Speed: 1×, ½×, 2×, reverse. The tape remembers the
 tempo it was recorded at and follows the transport like tape: change tempo and pitch moves with
-it. BOUNCE writes the loop to the recordings folder. Tape audio is saved with the session and with racks.
+it. BOUNCE writes the loop to the recordings folder. Tape audio is saved with the session
+(`~/.synth-rack/session.tape`) and, for a saved rack, in `Tapes/<rack>/` beside the takes.
 
 ### Recording
 
 The ● button in the transport bar records MAIN OUT to `take-YYYYMMDD-HHMMSS.wav` in the
-recordings folder; Reel's BOUNCE writes `reel-….wav` there too. Recordings are the one kind of
-user data that does not live in the repository: the default folder is `~/Dropbox/Synth Rack`
-(`~/Music/Synth Rack` without Dropbox), and it can be changed from the ● button's right-click
+recordings folder; Reel's BOUNCE writes `reel-….wav` there too. The default folder is
+`~/Dropbox/Synth Rack/Takes` (`~/Music/Synth Rack/Takes` without Dropbox), and it can be changed from the ● button's right-click
 menu or Settings…. The choice is stored per machine in `~/.synth-rack/settings.json`.
 
 ## 4. Working with the pedalboard
@@ -224,8 +244,12 @@ Unknown module types, jacks and params are skipped on load; values are clamped.
 
 ## 8. Backlog (not built)
 
-- Sample folders: read subfolders, and a real browser (search, audition) for large libraries
-  such as a Logic sample collection; the current sound list is a flat menu.
+- Sound browser: rename, delete and move between packs from inside the browser; `.zip` packs;
+  remember recently used sounds; show length and a waveform. Very large collections (a Logic
+  library) work but the scan is capped at 50,000 files.
+- Pedal Loop: optionally keep a copy of the pedal settings in the rack, so a rack does not change
+  when its board is edited.
+- Record what is played on Wander's keys (there is no way to keep a live melody except a take).
 - Tutorials: `tutorials/` has a first three; grow it as features land (tape, patching, Pedal
   Loop, sound design on Forge) and keep them in step with the UI.
 

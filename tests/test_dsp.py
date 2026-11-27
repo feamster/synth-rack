@@ -428,8 +428,8 @@ def test_library_searches_extra_folders_in_order_and_saves_where_told(tmp_path):
     library = Library(built_in)
     assert library.user_names() == ["Thud"]
     library.configure([shared, tmp_path / "not there"])
-    assert library.user_names() == ["Thud", "Rain"]              # top level only; missing folders are fine
-    assert library.get("Thud").sr == 48000, "the project's own folder wins a name clash"
+    assert library.user_names() == ["Thud", "Rain", "Nested/Deep"]     # missing folders are fine
+    assert library.get("Thud").sr == 48000, "the main folder wins a name clash"
     assert library.get("Rain").sr == 44100
 
     assert library.write_root == built_in
@@ -443,3 +443,44 @@ def test_library_searches_extra_folders_in_order_and_saves_where_told(tmp_path):
     library.configure([shared], save_to=tmp_path / "elsewhere")  # not a folder we search: ignored
     assert library.write_root == built_in
     assert library.rename("Rain", "Storm") == "Storm" and (shared / "Storm.wav").exists()
+
+
+def test_subfolders_are_packs_and_samples_are_named_by_pack(tmp_path):
+    from synthrack.dsp.library import BUILT_IN, LOOSE
+
+    root = tmp_path / "Samples"
+    tone = 0.4 * np.sin(np.arange(4800) * 0.1)
+    for rel in ("Loose One.wav", "808 Kit/Kick 1.wav", "808 Kit/Snare.wav", "Tape Kit/Kick 1.wav",
+                "Tape Kit/Hats/Closed.wav", ".hidden/Nope.wav", "808 Kit/notes.txt"):
+        if rel.endswith(".wav"):
+            write_wav(root / rel, tone, 48000)
+        else:
+            (root / rel).write_text("not audio")
+    library = Library(root)
+    groups = library.groups()
+    assert list(groups) == [BUILT_IN, LOOSE, "808 Kit", "Tape Kit", "Tape Kit/Hats"]
+    assert groups["808 Kit"] == ["808 Kit/Kick 1", "808 Kit/Snare"] and groups[LOOSE] == ["Loose One"]
+    assert library.get("808 Kit/Kick 1") is not library.get("Tape Kit/Kick 1") is not None
+    assert library.siblings("808 Kit/Snare") == ["808 Kit/Kick 1", "808 Kit/Snare"]
+    assert library.siblings("Kick Punch") == list(FACTORY_NAMES)
+
+    # a file that turns up later is noticed without being told
+    write_wav(root / "808 Kit" / "Clap.wav", tone, 48000)
+    assert "808 Kit/Clap" in library.names()
+    # renaming stays inside the pack; a rack on another Mac finds the same name
+    assert library.rename("808 Kit/Clap", "Big Clap") == "808 Kit/Big Clap"
+    assert (root / "808 Kit" / "Big Clap.wav").exists()
+    # importing a file that is already in a pack does not copy it
+    assert library.import_file(root / "Tape Kit" / "Hats" / "Closed.wav") == "Tape Kit/Hats/Closed"
+
+    # a whole folder comes in as a pack, keeping its subfolders
+    source = tmp_path / "Downloads" / "Lo-Fi Drums!"
+    write_wav(source / "Kick.wav", tone, 44100)
+    write_wav(source / "Perc" / "Tamb.wav", tone, 44100)
+    (source / "readme.pdf").write_text("x")
+    assert library.import_pack(source) == ("Lo-Fi Drums", 2)
+    assert {"Lo-Fi Drums/Kick", "Lo-Fi Drums/Perc/Tamb"} <= set(library.names())
+    assert library.import_pack(source)[0] == "Lo-Fi Drums 2"
+    (tmp_path / "Empty").mkdir()
+    with pytest.raises(ValueError):
+        library.import_pack(tmp_path / "Empty")

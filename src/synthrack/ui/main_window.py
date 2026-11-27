@@ -67,6 +67,8 @@ QMenu::item:disabled {{ color: {UI_DIM}; }}
 QListWidget {{ color: {UI_TEXT}; background: #0c0d0e; border: none; border-radius: 4px;
                font-size: 12px; padding: 2px; }}
 QListWidget::item:selected {{ background: #37393d; color: #ffffff; }}
+QLineEdit, QDoubleSpinBox {{ color: {UI_TEXT}; background: #0c0d0e; border: none; border-radius: 4px;
+    padding: 6px 8px; font-size: 12px; selection-background-color: #3d444c; }}
 QScrollArea {{ border: none; background: #0c0d0e; }}
 QScrollBar:vertical {{ background: #101113; width: 11px; }}
 QScrollBar::handle:vertical {{ background: #3a3f46; border-radius: 5px; min-height: 40px; }}
@@ -115,8 +117,8 @@ class FolderList(QWidget):
     def _fill(self, save_to) -> None:
         self.list.clear()
         self.save.clear()
-        self.list.addItem(f"{tidy_path(self.builtin)}   (this project)")
-        self.save.addItem("this project", None)
+        self.list.addItem(f"{tidy_path(self.builtin)}   (main)")
+        self.save.addItem(self.builtin.name or "main", None)
         for path in self._extra:
             self.list.addItem(tidy_path(path))
             self.save.addItem(path.name or str(path), str(path))
@@ -130,7 +132,7 @@ class FolderList(QWidget):
 
     def _remove(self) -> None:
         row = self.list.currentRow()
-        if row >= 1:                    # row 0 is the project's own folder
+        if row >= 1:                    # row 0 is the main folder
             del self._extra[row - 1]
             self._fill(self.save.currentData())
 
@@ -193,8 +195,8 @@ class SettingsDialog(QDialog):
         form.addRow("Recordings folder", folder)
         form.addRow("Sample folders", self.samples)
         form.addRow("Rack folders", self.racks)
-        hint = QLabel("Samples and racks are found by name, in the order listed; the project's own "
-                      "folder comes first. Only the top level of each folder is searched.")
+        hint = QLabel("Samples and racks are found by name, in the order listed; the main folder "
+                      "comes first. In a sample folder, each subfolder is a pack.")
         hint.setObjectName("dim")
         hint.setWordWrap(True)
         form.addRow(hint)
@@ -321,7 +323,9 @@ class MainWindow(QMainWindow):
         row.addWidget(self.clock)
 
         self.tempo = Knob("Tempo", 0.5, (120 - BPM_MIN) / (BPM_MAX - BPM_MIN), UI_TEXT, 30,
-                          formatter=lambda t: f"{self._bpm_of(t):.0f} bpm")
+                          formatter=lambda t: f"{self.engine.transport.bpm:g} bpm")
+        self.tempo.on_type = self._type_tempo
+        self.tempo.setToolTip("Click to type a tempo · drag up or down to turn\nOption-click for 120")
         self.tempo.changed.connect(self._tempo_changed)
         row.addWidget(self.tempo)
         self.swing = Knob("Swing", 0.0, 0.0, UI_TEXT, 30,
@@ -484,6 +488,19 @@ class MainWindow(QMainWindow):
         self.engine.transport.bpm = self._bpm_of(t)
         self._mark_edited()
 
+    def _type_tempo(self) -> None:
+        bpm, ok = QInputDialog.getDouble(self, "Tempo", "Beats per minute:", self.engine.transport.bpm,
+                                         BPM_MIN, BPM_MAX, 1)
+        if ok:
+            self.set_bpm(bpm)
+
+    def set_bpm(self, bpm: float) -> None:
+        """Set an exact tempo (the knob itself moves in whole beats per minute)."""
+        bpm = round(min(BPM_MAX, max(BPM_MIN, float(bpm))), 1)
+        self._set_tempo(bpm, self.engine.transport.swing)
+        self.tempo.update()
+        self._mark_edited()
+
     def _swing_changed(self, t: float) -> None:
         self.engine.transport.swing = t * SWING_MAX
         self._mark_edited()
@@ -606,7 +623,7 @@ class MainWindow(QMainWindow):
         except KeyError:
             return
         self.rack_name = name
-        self._apply_rack(data, self.store.assets_dir(name))
+        self._apply_rack(data, self.store.load_assets_dir(name))
         self._refresh_presets()
         self.edited_label.setText("")
 

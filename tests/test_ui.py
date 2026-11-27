@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from PyQt6.QtCore import QPoint, QPointF, Qt
+from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
 from PyQt6.QtWidgets import QApplication
 
 from synthrack.racks import RackStore
@@ -278,7 +278,7 @@ def test_renaming_and_deleting_a_sample_follows_through_the_rack_and_saved_racks
     write_wav(tmp_path / "Clonk.wav", 0.4 * np.sin(np.arange(9600) * 0.1), 48000)
     knock.select_track(2)
     assert knock.import_file(str(tmp_path / "Clonk.wav"))
-    synth._sample_chosen(library.names().index("Clonk"))
+    synth._use_sample("Clonk", play=False)
     window.store.save(window._current_rack("Keeper"), window.rack.modules())
 
     window.rack.rename_sample("Clonk", library.rename("Clonk", "Door Slam"))
@@ -300,9 +300,17 @@ def test_recordings_go_to_the_chosen_folder_and_the_choice_is_remembered(app, tm
 
     monkeypatch.delenv("SYNTHRACK_HOME", raising=False)
     monkeypatch.setattr(racks.Path, "home", classmethod(lambda cls: tmp_path / "home"))
-    assert racks.default_recordings_dir() == tmp_path / "home" / "Music" / "Synth Rack"
+    assert racks.default_recordings_dir() == tmp_path / "home" / "Music" / "Synth Rack" / "Takes"
     (tmp_path / "home" / "Dropbox").mkdir(parents=True)
-    assert racks.default_recordings_dir() == tmp_path / "home" / "Dropbox" / "Synth Rack"
+    music = tmp_path / "home" / "Dropbox" / "Synth Rack"
+    assert racks.default_recordings_dir() == music / "Takes" and racks.tapes_dir() == music / "Tapes"
+    from synthrack.dsp.library import samples_dir
+    assert samples_dir() == music / "Samples"
+    # racks live in the presets checkout when this Mac has one, else in ~/.synth-rack
+    monkeypatch.setenv("GEAR_PRESETS", str(tmp_path / "gear-presets"))
+    assert racks.racks_dir() == tmp_path / "home" / ".synth-rack" / "racks"
+    (tmp_path / "gear-presets").mkdir()
+    assert racks.racks_dir() == tmp_path / "gear-presets" / "synth-rack"
 
     win = MainWindow(RackStore(tmp_path / "state"))
     win.engine.start = lambda *a, **k: setattr(win.engine, "_stream", FakeStream())
@@ -336,7 +344,7 @@ def test_racks_are_found_in_extra_folders_and_saved_where_they_live(tmp_path):
     assert store.user_names() == []
     store.configure([shared])
     assert store.user_names() == ["From Elsewhere"] and store.load("From Elsewhere")["bpm"] == 96
-    # saving an existing rack rewrites it in place; a new one goes to the project unless told otherwise
+    # saving an existing rack rewrites it in place; a new one goes to the main folder unless told otherwise
     store.save({**store.load("From Elsewhere"), "bpm": 99})
     assert json.loads((shared / "from-elsewhere.json").read_text())["bpm"] == 99
     assert store.save({**FACTORY_RACKS[5], "name": "Local One"}).parent == store.racks_dir
@@ -358,23 +366,129 @@ def test_extra_folders_show_up_in_the_app_and_are_remembered(app, tmp_path):
     racks_folder.mkdir()
     (racks_folder / "x.json").write_text(json.dumps({**FACTORY_RACKS[1], "name": "Road Rack"}))
     win = MainWindow(RackStore(tmp_path / "state"))
-    knock = widget(win, "knockbox")
-    assert "Zebra Clap" not in knock.f_sound.choices
+    assert "Zebra Clap" not in LIBRARY.names()
     win.set_folders([sounds], sounds, [racks_folder], None)
-    assert "Zebra Clap" in knock.f_sound.choices
+    assert "Zebra Clap" in LIBRARY.names()
     assert win.presets.findData("Road Rack") >= 0
     dialog = SettingsDialog(win.engine.config, win.store, LIBRARY, win)
     assert dialog.samples.extra() == [sounds] and dialog.samples.save_to() == sounds
     assert dialog.racks.extra() == [racks_folder] and dialog.racks.save_to() is None
     dialog.samples.list.setCurrentRow(0)
-    dialog.samples._remove()                     # the project's own folder cannot be removed
+    dialog.samples._remove()                     # the main folder cannot be removed
     assert dialog.samples.extra() == [sounds]
     dialog.grab()
     win.close()
 
     again = MainWindow(RackStore(tmp_path / "state"))
-    assert "Zebra Clap" in widget(again, "knockbox").f_sound.choices
+    assert "Zebra Clap" in LIBRARY.names()
     assert LIBRARY.write_root == sounds and again.presets.findData("Road Rack") >= 0
     again.set_folders()
     again.close()
     assert LIBRARY.extra == []
+
+
+def test_sound_browser_shows_packs_searches_and_previews_on_the_track(window, tmp_path):
+    from synthrack.dsp.library import BUILT_IN, Library, write_wav
+    from synthrack.ui.sound_browser import ALL
+
+    root = tmp_path / "Samples"
+    tone = 0.4 * np.sin(np.arange(4800) * 0.1)
+    for rel in ("808 Kit/Kick 1.wav", "808 Kit/Snare.wav", "Tape Kit/Kick 1.wav"):
+        write_wav(root / rel, tone, 48000)
+    knock, synth = widget(window, "knockbox"), widget(window, "wander")
+    knock.module.library = synth.module.library = Library(root)
+    knock.select_track(0)
+    before = knock.track.sound
+
+    browser = knock.sound_browser()
+    assert browser.pack_names() == [ALL, BUILT_IN, "808 Kit", "Tape Kit"]
+    assert browser.current_pack() == BUILT_IN and before in browser.shown()
+    browser.packs.setCurrentRow(2)
+    assert browser.shown() == ["808 Kit/Kick 1", "808 Kit/Snare"]
+    browser.search.setText("kick 1")                         # a search looks in every pack
+    assert browser.shown() == ["808 Kit/Kick 1", "Tape Kit/Kick 1"]
+    browser.sounds.setCurrentRow(1)                          # clicking one puts it on the track
+    assert knock.track.sound == "Tape Kit/Kick 1" and browser.chosen == "Tape Kit/Kick 1"
+    assert knock.f_sound.fmt(knock.f_sound.choices[knock.f_sound.index]) == "Kick 1"
+    assert knock.f_sound.choices == ["Tape Kit/Kick 1"]      # the arrows stay inside the pack
+    browser.grab()
+
+    pack = tmp_path / "Downloads" / "Bells"
+    write_wav(pack / "Low.wav", tone, 44100)
+    browser.add_pack(pack)
+    assert browser.current_pack() == "Bells" and browser.shown() == ["Bells/Low"]
+
+    wander = synth.sound_browser()
+    wander.choose("808 Kit/Snare")
+    assert synth.module.sample_name == "808 Kit/Snare" and synth.f_sample.fmt("808 Kit/Snare") == "Snare"
+
+
+def test_saved_racks_get_git_history_and_tape_is_kept_with_the_music(app, tmp_path):
+    import json
+    import subprocess
+
+    from synthrack.racks import FACTORY_RACKS, RackStore, build_rack, rack_to_dict
+
+    store = RackStore(tmp_path / "state")
+    presets = tmp_path / "gear-presets" / "synth-rack"
+    presets.mkdir(parents=True)
+
+    def git(*args):
+        return subprocess.run(["git", "-C", str(presets.parent), *args], capture_output=True, text=True)
+    git("init", "-q")
+    git("config", "user.email", "test@example.com")
+    git("config", "user.name", "Test")
+    store.configure([presets], save_to=presets)
+
+    sketch = next(r for r in FACTORY_RACKS if r["name"] == "Synth Sketchpad")       # it has a Reel
+    modules, cables = build_rack(sketch)
+    reel = next(m for m in modules if m.TYPE == "reel")
+    reel.arm(90.0)
+    reel.tape[0][:, :1000] = 0.2
+
+    def rack(bpm):
+        return rack_to_dict("Night Loop", modules, cables, "graphite", bpm, 0.0)
+    path = store.save(rack(90), modules)
+    assert path == presets / "night-loop.json"
+    assert not path.with_suffix(".tape").exists(), "audio stays out of the presets repo"
+    tape = store.assets_dir("Night Loop")
+    assert list(tape.glob("*.wav")) and tape.parent == store.tapes
+    store.save(rack(77), modules)
+    log = git("log", "--format=%s", "--", "synth-rack/night-loop.json").stdout.split("\n")
+    assert log[:2] == ["Save rack: Night Loop", "Save rack: Night Loop"]
+    assert json.loads(git("show", "HEAD:synth-rack/night-loop.json").stdout)["bpm"] == 77
+    assert git("status", "--porcelain").stdout == ""
+
+    again, _ = build_rack(store.load("Night Loop"), assets=store.load_assets_dir("Night Loop"))
+    assert float(next(m for m in again if m.TYPE == "reel").tape[0].max()) == pytest.approx(0.2, abs=1e-3)
+    assert store.delete("Night Loop") and not store.assets_dir("Night Loop").exists()
+    assert git("log", "-1", "--format=%s").stdout.strip() == "Delete rack: Night Loop"
+    # a folder that is not a git checkout saves exactly as before
+    assert store.save({**sketch, "name": "Plain"}).parent == presets and RackStore(tmp_path / "other").save(
+        {**sketch, "name": "Plain"}).exists()
+
+
+def test_tempo_can_be_typed_and_knobs_reset_with_option_click(window):
+    from PyQt6.QtGui import QMouseEvent
+
+    window.set_bpm(92.5)
+    assert window.engine.transport.bpm == 92.5 and "92.5" in window.tempo.formatter(window.tempo.norm)
+    window.set_bpm(999)
+    assert window.engine.transport.bpm == 200.0 or window.engine.transport.bpm < 999
+    asked = []
+    window.tempo.on_type = lambda: asked.append(True)
+
+    def click(knob, modifiers=Qt.KeyboardModifier.NoModifier):
+        pos = QPointF(knob.width() / 2, knob.height() / 2)
+        for kind in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease):
+            left = Qt.MouseButton.LeftButton
+            QApplication.sendEvent(knob, QMouseEvent(kind, pos, knob.mapToGlobal(pos), left, left, modifiers))
+    click(window.tempo)
+    assert asked == [True]                                   # a plain click asks for a number
+    click(window.tempo, Qt.KeyboardModifier.AltModifier)
+    assert asked == [True] and window.engine.transport.bpm == 120.0
+
+    knob = widget(window, "wander").controls["cutoff"]
+    knob.set_norm(0.9, emit=True)
+    click(knob, Qt.KeyboardModifier.AltModifier)
+    assert knob.norm == pytest.approx(knob.default) and "Option-click" in knob.toolTip()

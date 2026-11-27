@@ -6,9 +6,12 @@ import json
 import os
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 from .dsp import REGISTRY, MainOut, module_from_dict
+from .dsp.core import Module
+from .dsp.library import AUDIO_SUFFIXES, REPO_SAMPLES, music_dir, samples_dir
 from .dsp.transport import BPM_MAX, BPM_MIN, SWING_MAX
 from .engine import valid_cables
 
@@ -17,29 +20,36 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def app_dir() -> Path:
-    """Per-machine state (session, session tape): ``~/.synth-rack``."""
+    """Per-machine state (session, session tape, settings): ``~/.synth-rack``."""
     return Path(os.environ.get("SYNTHRACK_HOME", Path.home() / ".synth-rack"))
 
 
+def presets_repo() -> Path:
+    """The checkout that holds saved racks (and the pedalboard's boards), kept
+    apart from the code: ``$GEAR_PRESETS``, else ``gear-presets`` beside this repo."""
+    return Path(os.environ.get("GEAR_PRESETS") or REPO_ROOT.parent / "gear-presets").expanduser()
+
+
 def racks_dir() -> Path:
-    """Saved racks live in ``racks/`` in the repository so they are versioned
-    with the code. ``SYNTHRACK_HOME`` moves them too."""
+    """Saved racks: ``synth-rack/`` in the presets checkout if this machine has
+    one, else ``~/.synth-rack/racks``. ``SYNTHRACK_HOME`` overrides both."""
     if "SYNTHRACK_HOME" in os.environ:
         return Path(os.environ["SYNTHRACK_HOME"]) / "racks"
-    return REPO_ROOT / "racks"
+    repo = presets_repo()
+    return repo / "synth-rack" if repo.is_dir() else app_dir() / "racks"
+
+
+def tapes_dir() -> Path:
+    """Reel audio saved with a rack: one folder per rack."""
+    return music_dir() / ("tapes" if "SYNTHRACK_HOME" in os.environ else "Tapes")
 
 
 _recordings: Path | None = None      # the folder chosen in the app, if any
 
 
 def default_recordings_dir() -> Path:
-    """Where takes and bounces go until a folder is chosen: Dropbox if this
-    machine has one (so the music is backed up and on every Mac), else ~/Music.
-    Recordings are the one thing that does not belong in the repository."""
-    if "SYNTHRACK_HOME" in os.environ:
-        return Path(os.environ["SYNTHRACK_HOME"]) / "recordings"
-    dropbox = Path.home() / "Dropbox"
-    return (dropbox if dropbox.is_dir() else Path.home() / "Music") / "Synth Rack"
+    """Where takes and bounces go until a folder is chosen."""
+    return music_dir() / ("recordings" if "SYNTHRACK_HOME" in os.environ else "Takes")
 
 
 def recordings_dir() -> Path:
@@ -50,6 +60,26 @@ def set_recordings_dir(path: str | Path | None) -> None:
     """Choose the recordings folder; None goes back to the default."""
     global _recordings
     _recordings = Path(path).expanduser() if path else None
+
+
+def git_commit(paths, message: str) -> bool:
+    """Record a change to saved files when their folder is a git checkout, so
+    racks get history without anyone touching git. Local only; never pushes.
+    Quietly does nothing anywhere else, or if git is missing or unhappy."""
+    paths = [Path(p) for p in paths]
+    if not paths:
+        return False
+    folder = paths[0].parent
+    try:
+        def git(*args):
+            return subprocess.run(["git", "-C", str(folder), *args], capture_output=True, timeout=10)
+        if git("rev-parse", "--is-inside-work-tree").returncode != 0:
+            return False
+        names = [str(p) for p in paths]
+        git("add", "-A", "--", *names)
+        return git("commit", "-q", "-m", message, "--", *names).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def tidy_path(path: Path) -> str:
@@ -235,6 +265,8 @@ def rack_tempo(data: dict) -> tuple[float, float]:
 
 def save_assets(modules, folder: Path) -> None:
     """Write module audio (tape) into ``folder``; remove the folder if there is none."""
+    if not any(type(m).save_assets is not Module.save_assets for m in modules) and not folder.exists():
+        return                       # nothing on the rack keeps audio: don't touch the disk
     folder.mkdir(parents=True, exist_ok=True)
     for module in modules:
         module.save_assets(folder)
@@ -250,14 +282,42 @@ def _slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "rack"
 
 
+def adopt_legacy(racks_to: Path, samples_to: Path) -> list:
+    """Move racks and samples out of this repository, where earlier versions
+    kept them, into their current homes. Anything already there is left alone.
+    Returns the rack files that arrived."""
+    moved = []
+    for source, target_dir, patterns in ((REPO_ROOT / "racks", racks_to, ("*.json",)),
+                                         (REPO_SAMPLES, samples_to, tuple(f"*{s}" for s in AUDIO_SUFFIXES))):
+        if not source.is_dir() or source == target_dir:
+            continue
+        for path in sorted(p for pattern in patterns for p in source.glob(pattern)):
+            target = target_dir / path.name
+            if target.exists():
+                continue
+            try:
+                target_dir.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(path), str(target))
+                if path.suffix == ".json":
+                    moved.append(target)
+            except OSError:
+                continue
+    if moved:
+        git_commit(moved, "Bring in racks saved before the presets repo")
+    return moved
+
+
 class RackStore:
-    """Factory racks plus the user's racks (``racks/*.json`` in the repo)."""
+    """Factory racks plus the user's racks (see ``racks_dir``), and per-machine state."""
 
     def __init__(self, root: Path | None = None):
         self.root = Path(root) if root else app_dir()
         self.racks_dir = self.root / "racks" if root else racks_dir()
         self.session_path = self.root / "session.json"
         self.session_assets = self.root / "session.tape"
+        self.tapes = self.root / "tapes" if root else tapes_dir()
+        if not root and "SYNTHRACK_HOME" not in os.environ:
+            adopt_legacy(self.racks_dir, samples_dir())
         self.settings_path = self.root / "settings.json"
         self.extra_dirs: list = []           # more folders to look in for racks
         self.save_dir: Path | None = None    # where new racks are saved; None = racks_dir
@@ -320,13 +380,21 @@ class RackStore:
         raise KeyError(name)
 
     def assets_dir(self, name: str) -> Path:
-        return self.path_of(name).with_suffix(".tape")
+        """Where a rack's tape audio is kept: with the music, not beside the rack file."""
+        return self.tapes / _slug(name)
+
+    def load_assets_dir(self, name: str) -> Path:
+        """The tape folder to read: the current place, else beside the rack file (older saves)."""
+        folder = self.assets_dir(name)
+        return folder if folder.is_dir() else self.path_of(name).with_suffix(".tape")
 
     def save(self, rack: dict, modules=()) -> Path:
         path = self.path_of(rack["name"])
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(rack, indent=1))
-        save_assets(modules, path.with_suffix(".tape"))
+        path.write_text(json.dumps(rack, indent=1) + "\n")
+        save_assets(modules, self.assets_dir(rack["name"]))
+        shutil.rmtree(path.with_suffix(".tape"), ignore_errors=True)     # tape used to live here
+        git_commit([path], f"Save rack: {rack['name']}")
         return path
 
     def delete(self, name: str) -> bool:
@@ -334,12 +402,14 @@ class RackStore:
         if not found:
             return False
         shutil.rmtree(found[1].with_suffix(".tape"), ignore_errors=True)
+        shutil.rmtree(self.assets_dir(name), ignore_errors=True)
         found[1].unlink()
+        git_commit([found[1]], f"Delete rack: {name}")
         return True
 
     def rename_sample(self, old: str, new: str) -> int:
         """Point saved racks at a renamed sample. Returns how many files changed."""
-        changed = 0
+        touched: list = []
         for path in sorted(p for folder in self.folders() if folder.is_dir() for p in folder.glob("*.json")):
             try:
                 data = json.loads(path.read_text())
@@ -353,9 +423,11 @@ class RackStore:
                     if isinstance(track, dict) and track.get("sound") == old:
                         track["sound"], hit = new, True
             if hit:
-                path.write_text(json.dumps(data, indent=1))
-                changed += 1
-        return changed
+                path.write_text(json.dumps(data, indent=1) + "\n")
+                touched.append(path)
+        for folder in {p.parent for p in touched}:
+            git_commit([p for p in touched if p.parent == folder], f"Rename sample: {old} -> {new}")
+        return len(touched)
 
     # settings: per-machine choices that are not part of a rack ---------------
     def load_settings(self) -> dict:

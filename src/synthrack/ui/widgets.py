@@ -26,7 +26,10 @@ def _alpha(color, alpha: int) -> QColor:
 
 class Knob(QWidget):
     """A flat encoder with a value arc. Drag up/down (Shift = fine), scroll,
-    double-click to reset. ``cap`` overrides the cap colour."""
+    double-click or Option-click to reset. ``cap`` overrides the cap colour.
+    With ``on_type`` set, a plain click (no drag) asks for a typed value."""
+
+    HINT = "Drag up or down · Shift for fine steps\nDouble-click or Option-click to reset"
 
     changed = pyqtSignal(float)  # normalised 0..1
 
@@ -44,7 +47,10 @@ class Knob(QWidget):
         self.formatter = formatter  # norm -> display string
         self.locked = False         # showing a per-step parameter lock
         self.on_reset = None        # callable -> True if it handled the double-click
+        self.on_type = None         # callable: a plain click wants to type the value
         self._drag = None
+        self._moved = False
+        self.setToolTip(self.HINT)
         self._hover = False
         self.setFixedSize(diameter + 30, diameter + 34)
         self.setCursor(Qt.CursorShape.SizeVerCursor)
@@ -74,25 +80,39 @@ class Knob(QWidget):
     # -- interaction --------------------------------------------------
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
+            if e.modifiers() & Qt.KeyboardModifier.AltModifier:
+                self.reset()
+                return e.accept()
             self._drag = (e.globalPosition().y(), self.norm)
+            self._moved = False
             self.update()
         e.accept()
+
+    def reset(self) -> None:
+        """Back to the default (or, on a held step, drop the lock)."""
+        if not (self.on_reset and self.on_reset()):
+            self.set_norm(self.default, emit=True)
 
     def mouseMoveEvent(self, e):
         if self._drag:
             y0, n0 = self._drag
+            if abs(y0 - e.globalPosition().y()) > 2:
+                self._moved = True
             span = 900.0 if e.modifiers() & Qt.KeyboardModifier.ShiftModifier else 170.0
             self.set_norm(n0 + (y0 - e.globalPosition().y()) / span, emit=True)
         e.accept()
 
     def mouseReleaseEvent(self, e):
+        clicked = self._drag is not None and not self._moved
         self._drag = None
         self.update()
         e.accept()
+        if clicked and self.on_type is not None:
+            self.on_type()
 
     def mouseDoubleClickEvent(self, e):
-        if not (self.on_reset and self.on_reset()):
-            self.set_norm(self.default, emit=True)
+        if self.on_type is None:        # there, the first click already opened the typing box
+            self.reset()
         e.accept()
 
     def wheelEvent(self, e):
@@ -270,7 +290,9 @@ class TransportButton(_RoundButton):
 
 class CycleField(QWidget):
     """Labelled value window; click the right half for next, the left for
-    previous, and (with ``menu``) the middle for a list of every choice."""
+    previous, and (with ``menu``) the middle for a list of every choice.
+    ``picker`` replaces that list with something better (the sound browser);
+    ``fmt`` turns a choice into the text shown."""
 
     changed = pyqtSignal(int)
 
@@ -278,6 +300,8 @@ class CycleField(QWidget):
                  width: int = 132, parent=None, menu: bool = False):
         super().__init__(parent)
         self.menu = menu
+        self.picker = None
+        self.fmt = str
         self.label = label
         self.choices = list(choices) or ["-"]
         self.index = index
@@ -301,9 +325,12 @@ class CycleField(QWidget):
     def mousePressEvent(self, e):
         x = e.position().x()
         if self.menu and 20 <= x <= self.width() - 20 and e.button() == Qt.MouseButton.LeftButton:
+            if self.picker is not None:
+                self.picker()
+                return e.accept()
             menu = QMenu(self)
             for i, name in enumerate(self.choices):
-                action = menu.addAction(str(name))
+                action = menu.addAction(self.fmt(name))
                 action.setCheckable(True)
                 action.setChecked(i == self.index)
                 action.setData(i)
@@ -338,7 +365,7 @@ class CycleField(QWidget):
         right = box.right()
         p.drawPolyline(QPointF(right - 10, y - 3.5), QPointF(right - 6.5, y), QPointF(right - 10, y + 3.5))
         p.setPen(QColor("#e9e9e5"))
-        text = str(self.choices[self.index])
+        text = self.fmt(self.choices[self.index])
         p.setFont(fit_font(text, box.width() - 34, 11, bold=True, family="mono"))
         p.drawText(box, Qt.AlignmentFlag.AlignCenter, text)
 

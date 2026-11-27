@@ -64,32 +64,61 @@ right-click a jack. Press `C` to dim or hide the cables when they are in the way
 
 ### Saving and recording
 
-- **Save** stores the rack (modules, knobs, patterns, cables, tape) in `racks/`.
+- **Save** stores the rack (modules, knobs, patterns, cables) as a small JSON file. Racks are
+  settings, not code, so they live outside this repo: see *Where your things are kept* below.
 - **●** in the top bar records the main output to a `take-….wav`; Reel's BOUNCE writes the tape
-  loop the same way. Recordings do not go in this folder: by default they go to
-  `~/Dropbox/Synth Rack` (or `~/Music/Synth Rack` on a machine without Dropbox). To change that,
-  right-click ● → *Choose Recordings Folder…*, or use **Settings…**. The choice is remembered per
-  machine.
-- Imported samples are copied to `samples/` in this folder, and every Knockbox and Wander sees
-  them. You can also drop audio files there yourself. To **rename or delete** one, right-click
-  the Knockbox or Wander that is using it: *Rename Sample…*, *Delete Sample…* (moves the file to
-  the Trash) and *Show Samples Folder*. Renames are followed through into your saved racks. The
-  30 built-in sounds are synthesised, so they can't be renamed or deleted.
+  loop the same way. To change the folder, right-click ● → *Choose Recordings Folder…*, or use
+  **Settings…**.
 
-### Keeping samples and racks somewhere else too
+### Sounds and sample packs
 
-The project's own `samples/` and `racks/` folders are always used, so a fresh clone works by
-itself. **Settings…** lets you add more folders for each (a Dropbox folder, a sample collection)
-and choose which folder new ones are saved in:
+Knockbox tracks and Wander's Sample engine play the 30 built-in sounds plus any audio files in
+your samples folder. **A subfolder is a pack**: `Samples/808 Kit/Kick 1.wav` is the sound
+"808 Kit / Kick 1".
 
-- Everything in the listed folders shows up together in the sound lists and the RACK menu.
-- Things are found by name, in the order listed, and the project's folder comes first, so a rack
-  that names a sample finds it wherever it lives.
-- *Save new ones in* decides where LOAD, SMPL and Save As write. A rack you loaded from another
-  folder is saved back where it came from.
-- Only the top level of each folder is read (no subfolders yet).
+- **Click the sound's name** on Knockbox (SOUND) or Wander (SAMPLE) to open the browser: packs on
+  the left, sounds on the right, a search box that looks in every pack. Clicking a sound plays
+  it on the track straight away, through that track's own settings and with the pattern still
+  running. *Use* keeps it, *Cancel* puts the old one back.
+- **Add Pack…** in the browser copies a whole folder of audio into your samples folder as a pack.
+  **Add File…**, Knockbox **LOAD**, or dropping a file on Knockbox adds a single file. You can
+  also just put folders into the samples folder in Finder; they show up on their own.
+- The arrows on the sound's name step through the sounds in the current pack.
+- To **rename or delete** a sample, right-click the Knockbox or Wander that is using it. Renames
+  are followed through into your saved racks. The built-in sounds are synthesised, so they
+  can't be renamed or deleted.
 
-These choices are per machine (`~/.synth-rack/settings.json`).
+### Where your things are kept
+
+This repo is the app only. A clone works on its own with the factory racks and built-in sounds;
+nothing you make is stored in it.
+
+| What | Where | Why |
+|---|---|---|
+| Racks | `~/src/gear-presets/synth-rack/` | small text files, in their own git repo so they have history |
+| Samples and packs | `~/Dropbox/Synth Rack/Samples/` | audio is big; Dropbox syncs it to every Mac |
+| Takes (● recordings, Reel bounces) | `~/Dropbox/Synth Rack/Takes/` | finished audio |
+| Tape (what is on a rack's Reel) | `~/Dropbox/Synth Rack/Tapes/<rack>/` | audio that belongs to a rack |
+| Session and settings | `~/.synth-rack/` | per machine |
+
+- `gear-presets` is a separate repo checked out **beside this one** (it also holds the
+  pedalboard's boards; see its README). Every Save makes a local git commit there, so each rack
+  has a history; push it when you want it backed up. Without that checkout, racks go to
+  `~/.synth-rack/racks` and move over the first time the app starts with it in place.
+  `GEAR_PRESETS=/path` points somewhere else.
+- Without Dropbox, the audio folders are under `~/Music/Synth Rack/`.
+- **Settings…** lets you add more folders to look in for samples and for racks, and choose which
+  one new files are saved in. Things are found by name, in the order listed, main folder first.
+  A rack names its samples ("808 Kit / Kick 1") and never stores a path, so the same rack works
+  on any Mac that has the pack. A rack loaded from an extra folder is saved back where it came
+  from. These choices are per machine (`~/.synth-rack/settings.json`).
+
+### Knobs
+
+Drag up or down to turn; hold Shift for fine steps; scroll works too. **Double-click or
+Option-click a knob to put it back to its default.** Click the **tempo** knob to type a tempo
+(Option-click for 120). [tutorials/00-cheat-sheet.md](tutorials/00-cheat-sheet.md) lists every
+gesture and key.
 
 ## With the pedalboard
 
